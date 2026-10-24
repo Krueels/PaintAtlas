@@ -6,6 +6,7 @@ const TILE: usize = 64;
 const MAX_STEPS: usize = 30;
 const MAX_HISTORY_BYTES: usize = 128 * 1024 * 1024;
 
+#[derive(PartialEq)]
 struct LayerProperties {
     blend_mode: crate::blend::BlendMode,
     name: String,
@@ -164,6 +165,7 @@ pub struct History {
     undo: VecDeque<Entry>,
     redo: Vec<Entry>,
     pending: Option<Document>,
+    pending_properties: Option<Delta>,
     stroke_layer: Option<usize>,
 }
 impl History {
@@ -172,6 +174,7 @@ impl History {
             undo: VecDeque::new(),
             redo: Vec::new(),
             pending: None,
+            pending_properties: None,
             stroke_layer: None,
         }
     }
@@ -187,6 +190,15 @@ impl History {
         self.commit(doc);
         self.stroke_layer = Some(doc.active);
         *doc.stroke_tiles.get_mut() = Some(Default::default());
+    }
+    /// A metadata-only edit must not copy or compare document pixel buffers.
+    pub fn push_layer_properties(&mut self, doc: &Document) {
+        self.commit(doc);
+        self.pending_properties = Some(Delta {
+            active: doc.active,
+            properties: vec![(doc.active, LayerProperties::from(&doc.layers[doc.active]))],
+            tiles: Vec::new(),
+        });
     }
     pub fn commit(&mut self, doc: &Document) {
         let stroke = self.stroke_layer.take().and_then(|layer| {
@@ -219,7 +231,13 @@ impl History {
                 tiles: patches,
             }))
         });
-        let entry = stroke.or_else(|| {
+        let properties = self.pending_properties.take().and_then(|mut delta| {
+            delta
+                .properties
+                .retain(|(index, before)| *before != LayerProperties::from(&doc.layers[*index]));
+            (!delta.properties.is_empty()).then_some(Entry::Tiles(delta))
+        });
+        let entry = stroke.or(properties).or_else(|| {
             self.pending
                 .take()
                 .and_then(|before| Entry::between(before, doc))
@@ -236,7 +254,12 @@ impl History {
     }
     pub fn counts(&self) -> (usize, usize) {
         (
-            self.undo.len() + usize::from(self.pending.is_some() || self.stroke_layer.is_some()),
+            self.undo.len()
+                + usize::from(
+                    self.pending.is_some()
+                        || self.pending_properties.is_some()
+                        || self.stroke_layer.is_some(),
+                ),
             self.redo.len(),
         )
     }
@@ -265,6 +288,38 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn opacity_history_stores_only_metadata_and_preserves_redo_for_noops() {
+        let mut doc = Document::new(3000, 3000, false);
+        let pixels = doc.layers[0].pixels.as_ptr();
+        let mut history = History::new();
+        history.push_layer_properties(&doc);
+        assert!(history.pending.is_none());
+        assert!(
+            history
+                .pending_properties
+                .as_ref()
+                .unwrap()
+                .tiles
+                .is_empty()
+        );
+        for step in 1..=100 {
+            doc.layers[0].opacity = step as f32 / 200.0;
+        }
+        history.commit(&doc);
+        assert_eq!(history.counts(), (1, 0));
+        assert!(history.undo[0].bytes() < 1024);
+        assert!(history.undo(&mut doc));
+        assert_eq!(doc.layers[0].opacity, 1.0);
+        history.push_layer_properties(&doc);
+        doc.layers[0].opacity = 0.2;
+        doc.layers[0].opacity = 1.0;
+        history.commit(&doc);
+        assert_eq!(history.counts(), (0, 1));
+        assert!(history.redo(&mut doc));
+        assert_eq!(doc.layers[0].opacity, 0.5);
+        assert_eq!(doc.layers[0].pixels.as_ptr(), pixels);
+    }
     fn brush() -> crate::document::Brush {
         crate::document::Brush {
             color: [20, 80, 160, 255],

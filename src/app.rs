@@ -55,6 +55,7 @@ pub struct PaintAtlas {
     doc: Document,
     selection: selection_ui::State,
     blend_fallback: Option<egui::TextureHandle>,
+    blend_fallback_dirty: bool,
     blend_shader: Option<std::sync::Arc<crate::blend_gpu::Shader>>,
     selection_shader: Option<std::sync::Arc<crate::selection_gpu::Shader>>,
     glass_shader: Option<std::sync::Arc<crate::glass_gpu::Shader>>,
@@ -193,6 +194,7 @@ impl PaintAtlas {
             root_pixels_per_point: 1.0,
             selection: selection_ui::State::default(),
             blend_fallback: None,
+            blend_fallback_dirty: false,
             blend_shader: None,
             selection_shader: None,
             glass_shader: None,
@@ -768,6 +770,28 @@ impl PaintAtlas {
         self.refresh = true;
         self.dirty = true;
     }
+    fn set_layer_opacity(&mut self, opacity: f32) {
+        if self.doc.layers[self.doc.active].opacity == opacity {
+            return;
+        }
+        if !self.opacity_edit {
+            self.history.push_layer_properties(&self.doc);
+            self.opacity_edit = true;
+        }
+        self.doc.layers[self.doc.active].opacity = opacity;
+        self.dirty = true;
+        // Opacity is a draw parameter, not a pixel edit. Reuse GPU textures.
+        // Only the CPU blend fallback needs its cached composite rebuilt.
+        if self.blend_shader.is_none()
+            && self
+                .doc
+                .layers
+                .iter()
+                .any(|layer| layer.visible && layer.blend_mode != crate::blend::BlendMode::Normal)
+        {
+            self.blend_fallback_dirty = true;
+        }
+    }
     fn checkpoint(&mut self) {
         self.doc.damage = None;
         self.history.push(&self.doc);
@@ -1253,7 +1277,11 @@ impl PaintAtlas {
                 .iter()
                 .any(|l| l.visible && l.blend_mode != crate::blend::BlendMode::Normal)
         {
-            if self.refresh || self.selection.floating.is_some() || self.blend_fallback.is_none() {
+            if self.refresh
+                || self.blend_fallback_dirty
+                || self.selection.floating.is_some()
+                || self.blend_fallback.is_none()
+            {
                 let pixels = self.fallback_blend_composite();
                 let image = egui::ColorImage::from_rgba_unmultiplied(
                     [self.doc.width as usize, self.doc.height as usize],
@@ -1272,6 +1300,7 @@ impl PaintAtlas {
         } else {
             self.blend_fallback = None;
         }
+        self.blend_fallback_dirty = false;
         if self.refresh {
             if let Some(d) = self
                 .doc
@@ -2544,12 +2573,8 @@ impl PaintAtlas {
         let mut opacity = self.doc.layers[self.doc.active].opacity;
         let response = ui.add(egui::Slider::new(&mut opacity, 0.0..=1.0));
         if response.changed() {
-            if !self.opacity_edit {
-                self.checkpoint();
-                self.opacity_edit = true;
-            }
-            self.doc.layers[self.doc.active].opacity = opacity;
-            self.changed();
+            self.set_layer_opacity(opacity);
+            ctx.request_repaint();
         }
         if !ctx.input(|i| i.pointer.primary_down()) {
             self.opacity_edit = false;
@@ -3565,6 +3590,61 @@ fn section(ui: &mut egui::Ui, text: &str) {
 mod tests {
     use super::*;
     use eframe::egui::Rect;
+    #[test]
+    fn opacity_drag_reuses_large_canvas_textures_and_is_one_undo_step() {
+        let ctx = egui::Context::default();
+        let mut app = PaintAtlas::from_context(&ctx);
+        app.reset(Document::new(3000, 3000, true), None, false);
+        let _ = ctx.run(
+            egui::RawInput {
+                max_texture_side: Some(4096),
+                ..Default::default()
+            },
+            |ctx| app.sync_layer_textures(ctx),
+        );
+        let ids: Vec<_> = app.textures.iter().map(|texture| texture.id()).collect();
+        let output = ctx.run(Default::default(), |ctx| {
+            for step in 1..=100 {
+                app.set_layer_opacity(step as f32 / 200.0);
+                app.sync_layer_textures(ctx);
+            }
+        });
+        assert!(output.textures_delta.set.is_empty());
+        assert_eq!(
+            ids,
+            app.textures
+                .iter()
+                .map(|texture| texture.id())
+                .collect::<Vec<_>>()
+        );
+        assert!(!app.refresh);
+        assert!(app.dirty);
+        app.opacity_edit = false;
+        app.history.commit(&app.doc);
+        assert_eq!(app.history.counts(), (1, 0));
+        app.undo();
+        assert_eq!(app.doc.layers[app.doc.active].opacity, 1.0);
+        app.redo();
+        assert_eq!(app.doc.layers[app.doc.active].opacity, 0.5);
+    }
+    #[test]
+    fn opacity_invalidates_cpu_blend_fallback_without_reuploading_layers() {
+        let ctx = egui::Context::default();
+        let mut app = PaintAtlas::from_context(&ctx);
+        app.reset(Document::new(8, 8, false), None, false);
+        app.doc.layers[0].pixels = [200, 100, 50, 255].repeat(64);
+        app.doc.layers[0].blend_mode = crate::blend::BlendMode::Multiply;
+        let _ = ctx.run(Default::default(), |ctx| app.sync_layer_textures(ctx));
+        let fallback = app.blend_fallback.as_ref().unwrap().id();
+        let output = ctx.run(Default::default(), |ctx| {
+            app.set_layer_opacity(0.25);
+            app.sync_layer_textures(ctx);
+        });
+        assert_eq!(output.textures_delta.set.len(), 1);
+        assert_eq!(output.textures_delta.set[0].0, fallback);
+        assert!(!app.refresh && !app.blend_fallback_dirty);
+        assert_eq!(app.fallback_blend_composite()[3], 64);
+    }
     #[test]
     fn custom_apply_binding_works_only_during_transform_and_preserves_undo() {
         let ctx = egui::Context::default();
