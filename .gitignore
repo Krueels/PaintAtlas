@@ -1,0 +1,17 @@
+# Compilação Rust
+/target/
+
+# Arquivos temporários e caches
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Configurações locais e segredos
+.env
+.env.*
+!.env.example
+/.idea/
+/.vscode/
