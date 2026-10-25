@@ -34,6 +34,7 @@ impl PaintAtlas {
                 .selection
                 .floating
                 .as_ref()
+                .filter(|f| !f.new_layer || !self.clipboard_motion.hides_paste())
                 .zip(self.selection.textures.as_ref());
             let floating_input =
                 |f: &crate::selection::Floating,
@@ -127,6 +128,9 @@ impl PaintAtlas {
     }
     /// Nested transform previews need the isolated group compositor.
     pub(super) fn group_transform_preview(&self) -> bool {
+        if self.clipboard_motion.hides_paste() {
+            return false;
+        }
         self.selection.floating.as_ref().is_some_and(|f| {
             if f.new_layer {
                 self.doc.layers[self.doc.active]
@@ -143,8 +147,13 @@ impl PaintAtlas {
     }
     /// CPU fallback for unavailable blend shaders and nested transform previews.
     pub(super) fn fallback_blend_composite(&self) -> Vec<u8> {
+        let floating = self
+            .selection
+            .floating
+            .as_ref()
+            .filter(|f| !f.new_layer || !self.clipboard_motion.hides_paste());
         if self.group_transform_preview() {
-            let f = self.selection.floating.as_ref().unwrap();
+            let f = floating.unwrap();
             let mut doc = self.doc.clone();
             let pixels = f.rasterize(doc.width, doc.height).0;
             if f.new_layer {
@@ -157,11 +166,7 @@ impl PaintAtlas {
             return doc.composite();
         }
         let mut out = vec![0; (self.doc.width * self.doc.height * 4) as usize];
-        let transformed = self
-            .selection
-            .floating
-            .as_ref()
-            .map(|f| f.rasterize(self.doc.width, self.doc.height).0);
+        let transformed = floating.map(|f| f.rasterize(self.doc.width, self.doc.height).0);
         let draw = |out: &mut [u8], pixels: &[u8], opacity, mode: crate::blend::BlendMode| {
             for (dst, src) in out
                 .as_chunks_mut::<4>()
@@ -182,11 +187,7 @@ impl PaintAtlas {
                 draw(&mut out, pixels, 1.0, crate::blend::BlendMode::Normal);
             }
             if layer.visible && layer.parent.is_none() {
-                let replacement = self
-                    .selection
-                    .floating
-                    .as_ref()
-                    .is_some_and(|f| !f.new_layer && f.layer == index);
+                let replacement = floating.is_some_and(|f| !f.new_layer && f.layer == index);
                 let pixels = if replacement {
                     transformed.as_deref().unwrap()
                 } else {

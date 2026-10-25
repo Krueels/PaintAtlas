@@ -88,6 +88,7 @@ impl PaintAtlas {
         self.invalidate_document_view();
     }
     fn invalidate_document_view(&mut self) {
+        self.clipboard_motion.cancel_flight();
         self.picker = super::picker_ui::State::default();
         self.fill_reveal.clear();
         // Rebuild GPU resources for the active document only; inactive tabs stay in RAM.

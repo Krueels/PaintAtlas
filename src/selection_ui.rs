@@ -268,6 +268,7 @@ impl PaintAtlas {
         self.selection.creation.is_some()
     }
     pub(super) fn cancel_transform(&mut self) {
+        self.clipboard_motion.cancel_flight();
         if std::mem::take(&mut self.selection.generated_transform_mask) {
             self.selection.mask = None;
             self.doc.selection = None;
@@ -278,6 +279,7 @@ impl PaintAtlas {
         self.status = "Transformação cancelada; o desenho original foi preservado.".into();
     }
     pub(super) fn apply_transform(&mut self) {
+        self.clipboard_motion.cancel_flight();
         if self
             .selection
             .floating
@@ -488,6 +490,9 @@ impl PaintAtlas {
         panning: bool,
     ) -> bool {
         let ctx = ui.ctx();
+        if self.clipboard_motion.hides_paste() {
+            return true;
+        }
         if self.preferences.capturing_shortcut() {
             return true;
         }
@@ -670,6 +675,9 @@ impl PaintAtlas {
         opacity: Color32,
         new_layer: bool,
     ) -> Option<Vec<egui::Shape>> {
+        if new_layer && self.clipboard_motion.hides_paste() {
+            return None;
+        }
         if let (Some(f), Some((base, cut))) = (&self.selection.floating, &self.selection.textures)
             && f.layer == index
             && f.new_layer == new_layer
@@ -735,6 +743,9 @@ impl PaintAtlas {
         );
     }
     pub(super) fn selection_overlay(&mut self, ui: &mut egui::Ui, view: CanvasView) {
+        if self.clipboard_motion.hides_paste() {
+            return;
+        }
         let ctx = ui.ctx().clone();
         let painter = ui.painter().with_clip_rect(ui.max_rect());
         let mut bounds = None;

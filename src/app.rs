@@ -1,6 +1,8 @@
 use crate::shortcuts::Action as Shortcut;
 #[path = "canvas_backdrop.rs"]
 mod canvas_backdrop;
+#[path = "clipboard_motion.rs"]
+mod clipboard_motion;
 #[path = "clipboard_ui.rs"]
 mod clipboard_ui;
 #[path = "documents_ui.rs"]
@@ -60,6 +62,7 @@ pub struct PaintAtlas {
     export_dialog: Option<export_ui::Export>,
     last_filter: Option<crate::filters::Settings>,
     clipboard: crate::clipboard::SystemClipboard,
+    clipboard_motion: clipboard_motion::State,
     documents: Vec<documents_ui::Tab>,
     active_document: usize,
     next_document_id: u64,
@@ -207,6 +210,7 @@ impl PaintAtlas {
             export_dialog: None,
             last_filter: None,
             clipboard: Default::default(),
+            clipboard_motion: clipboard_motion::State::default(),
             documents: vec![documents_ui::Tab {
                 id: 0,
                 name: "Sem título".into(),
@@ -880,6 +884,7 @@ impl PaintAtlas {
         }
     }
     fn reset(&mut self, doc: Document, path: Option<PathBuf>, dirty: bool) {
+        self.clipboard_motion.cancel_flight();
         self.picker = picker_ui::State::default();
         self.fill_reveal.clear();
         self.clear_selection();
@@ -1030,6 +1035,7 @@ impl PaintAtlas {
         }
     }
     fn undo(&mut self) {
+        self.clipboard_motion.cancel_flight();
         self.fill_reveal.clear();
         self.selected_layers.clear();
         self.layer_motion = None;
@@ -1046,6 +1052,7 @@ impl PaintAtlas {
         }
     }
     fn redo(&mut self) {
+        self.clipboard_motion.cancel_flight();
         self.fill_reveal.clear();
         self.selected_layers.clear();
         self.layer_motion = None;
@@ -1280,7 +1287,7 @@ impl PaintAtlas {
                             )
                             .clicked()
                         {
-                            self.copy_selection_to_clipboard(false);
+                            self.copy_selection_to_clipboard(ctx, false);
                             ui.close();
                         }
                         if ui
@@ -1291,7 +1298,7 @@ impl PaintAtlas {
                             )
                             .clicked()
                         {
-                            self.copy_selection_to_clipboard(true);
+                            self.copy_selection_to_clipboard(ctx, true);
                             ui.close();
                         }
                         if ui
@@ -1358,6 +1365,9 @@ impl PaintAtlas {
                         ui.label(self.document_title(self.active_document));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.clipboard_motion.badge_ui(ui) {
+                            self.paste_from_clipboard(ctx);
+                        }
                         if crate::theme::button(ui, "Exportar PNG rápido").clicked() {
                             self.export();
                         }
@@ -2085,6 +2095,37 @@ impl PaintAtlas {
             }
             self.checkpoint();
             self.animated_fill(ctx, [300.0, 250.0], [55, 153, 245, 255], 1.0);
+        }
+        if self.screenshot.is_some()
+            && std::env::var("PAINTATLAS_SMOKE_SCENE")
+                .is_ok_and(|scene| scene.starts_with("clipboard-flight"))
+            && self.frames == 4
+        {
+            let rect = egui::Rect::from_min_max(Pos2::new(110.0, 90.0), Pos2::new(490.0, 380.0));
+            self.selection.mask =
+                crate::selection::Mask::rectangle(self.doc.width, self.doc.height, rect)
+                    .map(std::sync::Arc::new);
+            self.doc.selection = self.selection.mask.clone();
+            if let Ok(image) =
+                crate::clipboard::capture(&self.doc, self.selection.mask.as_deref(), false)
+            {
+                // Native rendering QA never reads or overwrites the system clipboard.
+                self.clipboard_motion
+                    .copied(ctx, &image, self.clipboard_quad(rect));
+                if std::env::var("PAINTATLAS_SMOKE_SCENE").as_deref()
+                    == Ok("clipboard-flight-paste")
+                {
+                    let preview = clipboard_motion::thumbnail(ctx, &image);
+                    if self.paste_image(ctx, image).is_ok() {
+                        let target = self
+                            .selection
+                            .floating
+                            .as_ref()
+                            .and_then(|f| self.clipboard_quad(f.bounds));
+                        self.clipboard_motion.pasted(ctx, preview, target);
+                    }
+                }
+            }
         }
         self.fill_reveal.advance(ctx);
         self.sync_layer_textures(ctx);
@@ -3829,6 +3870,7 @@ impl eframe::App for PaintAtlas {
         self.dialogs(ctx);
         self.image_dialog(ctx);
         self.export_as_ui(ctx);
+        self.clipboard_feedback_ui(ctx);
         self.image_drop_overlay(ctx);
         crate::theme::finish_glass(ctx);
         if self.gesture.is_none() && !self.opacity_edit && self.image_editor.is_none() {
@@ -3867,6 +3909,7 @@ impl eframe::App for PaintAtlas {
                 Ok("stabilizer-live") => 140,
                 Ok("layer-fluid-drop") => 34,
                 Ok("fill-reveal" | "fill-reveal-solid") => 14,
+                Ok("clipboard-flight-copy" | "clipboard-flight-paste") => 24,
                 Ok("glass-canvas-native") => 60,
                 _ => 20,
             };

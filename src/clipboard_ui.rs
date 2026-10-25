@@ -1,26 +1,62 @@
 use super::*;
 impl PaintAtlas {
-    pub(super) fn copy_selection_to_clipboard(&mut self, merged: bool) {
-        match crate::clipboard::capture(&self.doc, self.selection.mask.as_deref(), merged)
-            .and_then(|image| self.clipboard.write_image(&image))
-        {
-            Ok(()) => {
+    pub(super) fn copy_selection_to_clipboard(&mut self, ctx: &egui::Context, merged: bool) {
+        let result = crate::clipboard::capture(&self.doc, self.selection.mask.as_deref(), merged)
+            .and_then(|image| {
+                self.clipboard.write_image(&image)?;
+                Ok(image)
+            });
+        match result {
+            Ok(image) => {
+                let bounds = self.selection.mask.as_ref().map_or(
+                    egui::Rect::from_min_size(
+                        Pos2::ZERO,
+                        Vec2::new(self.doc.width as f32, self.doc.height as f32),
+                    ),
+                    |mask| mask.bounds,
+                );
+                self.clipboard_motion
+                    .copied(ctx, &image, self.clipboard_quad(bounds));
                 self.status = format!(
                     "Imagem copiada. Troque de canvas e use {} para colar.",
                     self.settings.shortcuts.label(Shortcut::Paste)
-                )
+                );
             }
             Err(error) => self.status = error,
         }
     }
     pub(super) fn paste_from_clipboard(&mut self, ctx: &egui::Context) {
-        match self
-            .clipboard
-            .read_image()
-            .and_then(|image| self.paste_image(ctx, image))
-        {
-            Ok(()) => {}
-            Err(error) => self.status = format!("Erro ao colar: {error}"),
+        if self.image_editor.is_some() {
+            self.status = "Aplique ou cancele a operação de imagem antes de colar.".into();
+            return;
+        }
+        match self.clipboard.read_image() {
+            Ok(image) => {
+                // The animation keeps only a small thumbnail; the original pixels
+                // continue through the normal, lossless paste/transform path.
+                let preview = self
+                    .clipboard_motion
+                    .visible()
+                    .then(|| super::clipboard_motion::thumbnail(ctx, &image));
+                match self.paste_image(ctx, image) {
+                    Ok(()) => {
+                        if let Some(image) = preview {
+                            let target = self
+                                .selection
+                                .floating
+                                .as_ref()
+                                .filter(|f| f.new_layer)
+                                .and_then(|f| self.clipboard_quad(f.bounds));
+                            self.clipboard_motion.pasted(ctx, image, target);
+                        }
+                    }
+                    Err(error) => self.status = format!("Erro ao colar: {error}"),
+                }
+            }
+            Err(error) => {
+                self.clipboard_motion.clear();
+                self.status = format!("Erro ao colar: {error}");
+            }
         }
     }
     pub(super) fn paste_image(
@@ -43,7 +79,8 @@ impl PaintAtlas {
         }
         image.validate()?;
         let size = Vec2::new(image.size[0] as f32, image.size[1] as f32);
-        let mut scale = (self.doc.width as f32 / size.x)
+        // Paste uses document pixels; viewport zoom/rotation must never resize content.
+        let scale = (self.doc.width as f32 / size.x)
             .min(self.doc.height as f32 / size.y)
             .min(1.0);
         let mut center = Pos2::new(self.doc.width as f32 / 2.0, self.doc.height as f32 / 2.0);
@@ -58,14 +95,6 @@ impl PaintAtlas {
                 mirrored: self.mirrored,
             };
             center = Pos2::from(view.document(bounds.center()));
-            let (sin, cos) = self.angle.sin_cos();
-            let screen_size = Vec2::new(
-                size.x * cos.abs() + size.y * sin.abs(),
-                size.x * sin.abs() + size.y * cos.abs(),
-            ) * self.zoom;
-            scale = scale
-                .min(bounds.width() * 0.9 / screen_size.x)
-                .min(bounds.height() * 0.9 / screen_size.y);
         }
         let fitted = (size * scale).min(Vec2::new(self.doc.width as f32, self.doc.height as f32));
         center.x = center
@@ -121,7 +150,7 @@ impl PaintAtlas {
             return true;
         }
         if copy {
-            self.copy_selection_to_clipboard(merged);
+            self.copy_selection_to_clipboard(ctx, merged);
         }
         if paste {
             self.paste_from_clipboard(ctx);
@@ -334,6 +363,85 @@ mod tests {
         app.apply_transform();
         assert_eq!(app.doc.layers.len(), 3);
         assert_eq!(app.doc.active, 1);
+    }
+    #[test]
+    fn same_size_3000_pixel_paste_matches_canvas_even_in_a_smaller_viewport() {
+        let ctx = egui::Context::default();
+        // Headless egui defaults to 2048; match the real canvas renderer's limit.
+        let _ = ctx.run(
+            egui::RawInput {
+                max_texture_side: Some(4096),
+                ..Default::default()
+            },
+            |_| {},
+        );
+        let mut app = PaintAtlas::from_context(&ctx);
+        app.reset(Document::new(3000, 3000, false), None, false);
+        app.last_canvas_bounds = Some(egui::Rect::from_min_size(
+            Pos2::ZERO,
+            Vec2::new(900.0, 700.0),
+        ));
+        app.fit = false;
+        app.zoom = 0.25;
+        app.pan = Vec2::new(200.0, -80.0);
+        app.angle = 0.45;
+        app.mirrored = true;
+        let mut pixels = vec![0; 3000 * 3000 * 4];
+        pixels[..4].copy_from_slice(&[50, 100, 200, 255]);
+        app.paste_image(
+            &ctx,
+            crate::clipboard::Image {
+                size: [3000, 3000],
+                pixels,
+            },
+        )
+        .unwrap();
+        let floating = app.selection.floating.as_ref().unwrap();
+        assert_eq!(
+            floating.bounds,
+            egui::Rect::from_min_size(Pos2::ZERO, Vec2::splat(3000.0))
+        );
+        assert_eq!(floating.size, [3000, 3000]);
+    }
+    #[test]
+    fn paste_keeps_pixel_size_at_any_zoom_and_confirm_does_not_resample() {
+        let ctx = egui::Context::default();
+        let mut app = PaintAtlas::from_context(&ctx);
+        let original: Vec<u8> = (0..32 * 24)
+            .flat_map(|i| [i as u8, (i / 32) as u8, 80, 255])
+            .collect();
+        for (zoom, angle, mirrored) in [(0.2, 0.0, false), (4.0, 0.7, true)] {
+            app.reset(Document::new(32, 24, false), None, false);
+            app.last_canvas_bounds =
+                Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(80.0, 60.0)));
+            app.fit = false;
+            app.zoom = zoom;
+            app.angle = angle;
+            app.mirrored = mirrored;
+            app.pan = Vec2::new(15.0, -20.0);
+            app.paste_image(
+                &ctx,
+                crate::clipboard::Image {
+                    size: [32, 24],
+                    pixels: original.clone(),
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                app.selection.floating.as_ref().unwrap().bounds,
+                egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(32.0, 24.0))
+            );
+            app.apply_transform();
+            assert_eq!(app.doc.layers[app.doc.active].pixels, original);
+        }
+        app.reset(Document::new(32, 24, false), None, false);
+        app.fit = false;
+        app.zoom = 100.0;
+        app.paste_image(&ctx, image()).unwrap();
+        assert_eq!(
+            app.selection.floating.as_ref().unwrap().bounds.size(),
+            Vec2::splat(2.0)
+        );
     }
     #[test]
     fn paste_fits_large_images_and_rejects_full_layer_stack_without_mutation() {

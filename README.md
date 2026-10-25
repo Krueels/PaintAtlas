@@ -107,9 +107,9 @@ Selections are temporary. Permanent layer masks are not available yet.
 
 ### Copy, paste, and import images
 
-**Ctrl+C** copies the active layer's selected region or the entire layer. **Ctrl+Shift+C** copies the visible composite, restricted to the selection when present. Copy a region, switch tabs, and paste to transfer content between canvases.
+**Ctrl+C** copies the active layer's selected region or the entire layer. **Ctrl+Shift+C** copies the visible composite, restricted to the selection when present. Copy a region, switch tabs, and paste to transfer content between canvases. After an in-app copy, a thumbnail indicator appears in the top-right corner. A visual copy travels from the selection into that indicator; pasting animates it back to the destination, with a brief shake on receipt and release. Click the indicator to paste. The source pixels stay intact, previews use bounded thumbnails, and Reduce Motion skips the flight.
 
-On an open canvas, **Ctrl+V** starts a provisional new layer: move, resize, or rotate it, then apply or cancel. Large images are scaled down to fit the editing area. On the splash screen, pasting creates a canvas with the image's original dimensions.
+On an open canvas, **Ctrl+V** starts a provisional new layer: move, resize, or rotate it, then apply or cancel. Images that fit the document keep their original pixel dimensions, independently of view zoom, rotation, or panel size. Images larger than the document are scaled down only to fit its pixel dimensions. On the splash screen, pasting creates a canvas with the image's original dimensions.
 
 Drag images from a file manager or browser to import them. Supported formats are PNG, JPEG, WebP, BMP, and the first frame of GIF files. Drag-and-drop import accepts up to eight images at a time and 32 MiB per file; each image waits for the previous one to be applied or canceled. Downloads and decoding run outside the UI thread, and canceling stops a pending download.
 
@@ -249,7 +249,7 @@ Brushes rasterize on the CPU; previews and blend modes use OpenGL. During freeha
 | `src/documents_ui.rs`, `src/workspace.rs` | Documents and docking |
 | `src/selection*.rs` | Masks, transforms, and previews |
 | `src/blend.rs`, `src/blend_gpu.rs` | CPU/GPU blend modes and radial fill composition |
-| `src/fill_reveal.rs`, `src/picker_ui.rs` | Expanding fill reveal and eyedropper magnifier |
+| `src/fill_reveal.rs`, `src/picker_ui.rs`, `src/clipboard_motion.rs` | Fill reveal, eyedropper magnifier, and clipboard animations |
 | `src/export_ui.rs` | Export options, background encoding, and file preview |
 | `src/clipboard*.rs`, `src/image_drop*.rs` | Clipboard and drag-and-drop import |
 | `src/image_menu.rs`, `src/image_ops.rs` | Image adjustments, geometry, previews, and background jobs |
