@@ -10,6 +10,7 @@ impl PaintAtlas {
                 || self.creating_selection()
                 || self.pending.is_some()
                 || self.brush_editor.is_some()
+                || self.image_editor.is_some()
                 || self.preferences.capturing_shortcut()
                 || self.new_dialog && !self.startup_canvas_required
             {
@@ -48,6 +49,7 @@ impl PaintAtlas {
             || self.creating_selection()
             || self.pending.is_some()
             || self.brush_editor.is_some()
+            || self.image_editor.is_some()
             || self.preferences.capturing_shortcut()
             || self.new_dialog && !self.startup_canvas_required
         {

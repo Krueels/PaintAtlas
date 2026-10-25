@@ -57,7 +57,7 @@ impl PaintAtlas {
                         floating: Some(floating_input(f, textures)),
                     });
                 }
-                if layer.visible {
+                if layer.visible && layer.parent.is_none() {
                     layers.push(crate::blend_gpu::Layer {
                         texture: texture.id(),
                         opacity: layer.opacity,
@@ -88,7 +88,7 @@ impl PaintAtlas {
                 {
                     shapes.extend(preview);
                 }
-                if layer.visible {
+                if layer.visible && layer.parent.is_none() {
                     let tint = Color32::from_white_alpha((layer.opacity * 255.0).round() as u8);
                     if let Some(preview) =
                         self.selection_preview_shapes(clip, view, index, tint, false)
@@ -121,9 +121,37 @@ impl PaintAtlas {
         ));
         shapes
     }
-    /// Correct fallback for headless rendering or unavailable shader support.
-    /// Native OpenGL rendering never flattens the document on the CPU.
+    /// Nested transform previews need the isolated group compositor.
+    pub(super) fn group_transform_preview(&self) -> bool {
+        self.selection.floating.as_ref().is_some_and(|f| {
+            if f.new_layer {
+                self.doc.layers[self.doc.active]
+                    .group
+                    .or(self.doc.layers[self.doc.active].parent)
+                    .is_some()
+            } else {
+                self.doc
+                    .layers
+                    .get(f.layer)
+                    .is_some_and(|l| l.parent.is_some())
+            }
+        })
+    }
+    /// CPU fallback for unavailable blend shaders and nested transform previews.
     pub(super) fn fallback_blend_composite(&self) -> Vec<u8> {
+        if self.group_transform_preview() {
+            let f = self.selection.floating.as_ref().unwrap();
+            let mut doc = self.doc.clone();
+            let pixels = f.rasterize(doc.width, doc.height).0;
+            if f.new_layer {
+                doc.add_layer();
+                doc.layers[doc.active].pixels = pixels;
+            } else {
+                doc.layers[f.layer].pixels = pixels;
+            }
+            doc.rebuild_groups(None);
+            return doc.composite();
+        }
         let mut out = vec![0; (self.doc.width * self.doc.height * 4) as usize];
         let transformed = self
             .selection
@@ -149,7 +177,7 @@ impl PaintAtlas {
             {
                 draw(&mut out, pixels, 1.0, crate::blend::BlendMode::Normal);
             }
-            if layer.visible {
+            if layer.visible && layer.parent.is_none() {
                 let replacement = self
                     .selection
                     .floating

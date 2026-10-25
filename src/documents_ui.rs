@@ -36,6 +36,11 @@ impl PaintAtlas {
         format!("{name}{}", if dirty { " •" } else { "" })
     }
     pub(super) fn document_change_allowed(&mut self) -> bool {
+        if self.image_editor.is_some() {
+            self.status =
+                "Aplique ou cancele a operação de imagem antes de trocar de canvas.".into();
+            return false;
+        }
         if self.gesture.is_some() || self.selection.floating.is_some() {
             self.status =
                 "Termine o traço ou aplique/cancele a transformação antes de trocar de tela."
@@ -89,6 +94,10 @@ impl PaintAtlas {
         self.doc.damage = None;
         self.refresh = true;
         self.zoom_animation = None;
+        self.fit_animation = None;
+        self.smooth_fit = false;
+        self.selected_layers.clear();
+        self.collapsed_groups.clear();
         self.rotation_target = None;
         self.layer_motion = None;
         self.layer_row_slides.clear();

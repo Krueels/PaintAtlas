@@ -40,6 +40,8 @@ Save as **`.patlas`** to preserve layers. Exporting PNG produces a flattened ima
 
 ## Features
 
+The navigation panel's **Fit** command smoothly animates both zoom and centering. Reduced Motion applies the view immediately.
+
 ### Drawing and brushes
 
 - Brush and eraser controls for size, opacity, hardness, spacing, stabilization, and pressure dynamics.
@@ -56,7 +58,7 @@ Choose the brush mask under **Properties → Tip / texture**. Transparent tips u
 
 ### Layers and blend modes
 
-Layers support thumbnails, names, visibility, opacity, alpha lock, duplication, and deletion. Drag a thumbnail or layer name to reorder. Animated feedback follows the drag and can be disabled with **Reduce motion**.
+Layers support thumbnails, names, visibility, opacity, alpha lock, duplication, and deletion. Drag a thumbnail or layer name to reorder. Right-click a layer to rename, duplicate, delete, merge down, or assign an organizational color. Merge down is available for two visible layers in Normal mode; explicit group rasterization consolidates its children into pixels. Animated feedback follows the drag and can be disabled with **Reduce motion**.
 
 The selector above layer opacity offers 18 modes: Normal, Multiply, Screen, Overlay, Soft Light, Hard Light, Darken, Lighten, Color Dodge, Color Burn, Difference, Exclusion, Add, Subtract, Hue, Saturation, Color, and Luminosity. Blend mode changes can be undone.
 
@@ -80,11 +82,62 @@ Drag images from a file manager or browser to import them. Supported formats are
 
 The browser must provide a file or an HTTP/HTTPS or `data:image` image URL. For `blob:` URLs and sites requiring authentication or blocking downloads, use **Copy image** in the browser and paste into the app. Dragging does not change the system clipboard.
 
+### Layer groups and multiple selection
+
+Use **Ctrl+click** to toggle layers and **Shift+click** to select a range. **Group** (**Ctrl+G**) creates an isolated group from selected siblings; groups can nest, expand/collapse, move with their children, duplicate, and receive organizational colors through the context menu. Select a child to paint; creating a layer while a group is active inserts it inside that group. **Merge Selected** (**Ctrl+Shift+E**) combines selected siblings or groups into one raster layer. These shortcuts are configurable under **Settings → Shortcuts → Layers**.
+
+Groups composite as a single image with their own opacity and blend mode. Image adjustments and filters preview on the group's combined content. Applying effects stores a live effect stack on the group and preserves every child layer for individual editing. Editing a child recomputes the group's effects. The context menu can remove the group's effects; Undo restores them. Only explicit rasterization or merging consolidates children. Groups, their caches, and child layers count toward the existing layer and memory limits.
+
+### Image menu
+
+![Image menu and adjustments](docs/image-menu.png)
+
+The **Image** menu groups destructive RGB adjustments and document operations. Adjustable effects use movable, resizable floating windows without dimming the canvas, with live preview, reset, and apply/cancel controls. Loading indicators have reserved space so controls stay in place during processing. Processing runs in a cancellable background task; moving a slider briefly delays recomputation so intermediate requests do not build up. Applying creates one undo step, while canceling restores the original pixels and dirty state.
+
+Color adjustments affect the **active visible layer**, restricted to the current selection when present. They preserve alpha, including soft selection coverage. Available adjustments:
+
+- Brightness/Contrast, Levels with input/output ranges and gamma, and Curves with five control values and RGB or individual channel editing.
+- Exposure, Vibrance, Hue/Saturation/Lightness, and Color Balance for shadows, midtones, or highlights.
+- Black & White, Photo Filter, Channel Mixer, Invert, Posterize, and Threshold.
+- Two-color Gradient Map, Shadows/Highlights, Desaturate, Replace Color, and Equalize.
+- Auto Tone, Auto Contrast, and Auto Color, using histograms weighted by opacity and selection coverage.
+
+Curves can be edited directly: drag control points in both axes, click the graph to add a point, and right-click an interior point to remove it. Expand **Adjust with sliders** for precise input/output controls. Both interfaces edit the same mapping.
+
+![Curves adjustment with live canvas preview](docs/image-curves.png)
+
+These are PaintAtlas implementations for 8-bit RGB images; they do not reproduce Photoshop's algorithms exactly. CMYK, HDR, adjustment layers, and color-profile conversion are not implemented.
+
+Document operations affect **all layers** and preserve their properties:
+
+- **Image Size:** resize with optional aspect locking and nearest-neighbor, bilinear, bicubic, or Lanczos resampling. Smooth filters use premultiplied alpha to avoid dark transparent edges. Disable resampling to change only print DPI without altering pixels.
+- **Canvas Size:** expand or crop the canvas with a nine-position content anchor; new areas are transparent.
+- **Image Rotation:** exact 90°/180° rotations, arbitrary rotation with expanded transparent bounds, and horizontal/vertical flips. These alter pixels, unlike view rotation and mirroring.
+- **Crop to Selection:** crop every layer to the selection's rectangular bounds.
+- **Trim:** remove transparent borders or borders matching either corner color, with tolerance and individual edge controls. Bounds come from the visible composite.
+- **Duplicate Image:** create an independent document tab with all layers.
+
+Dimension and pixel-memory limits still apply. Geometry operations clear the temporary selection after applying. Apply or cancel an image operation before drawing, switching documents, saving, or exporting.
+
+### Filter gallery
+
+![Filter gallery with active-layer preview](docs/filter-gallery.png)
+
+Open **Filter → Filter Gallery** to browse **73 filters in 14 categories**, with search, demonstration thumbnails, a dedicated active-layer preview, and a live preview on the actual canvas. Individual filters are also available through category submenus. Controls include reset, effect strength, apply/cancel, deterministic random seeds, and boundary policies where relevant.
+
+The catalog includes blur and focus effects, noise reduction, distortion, pixelation, procedural clouds/fibers, sharpening, stylization, artistic/sketch effects, textures, de-interlacing, custom convolution, high pass, morphology, and offset. Displacement supports importing an image map. Approximate effects are identified in the controls; these are independent PaintAtlas implementations, not copies of Adobe algorithms.
+
+Filters affect the active visible layer and respect selections. Spatial effects can move or soften alpha, while procedural generators can fill an empty layer. Layer alpha lock is always respected, and applicable filters also offer a Preserve Transparency option. Apply creates one undo action; Cancel restores the original pixels and dirty state. Processing and thumbnail generation run in background tasks.
+
+Use **Ctrl+Alt+F** to repeat the last applied filter with its settings. Filter commands and the gallery can be remapped under **Settings → Shortcuts → Filters**. Last-filter settings persist for the current app session.
+
+See the [filter inventory and compatibility assessment](docs/FILTER_CATALOG.md) for the available effects, the Adobe references used during research, algorithm differences, and deferred features such as Smart Filters, Neural Filters, Liquify, Camera Raw, and perspective tools.
+
 ### Interface and settings
 
 - Panels can dock at canvas edges, share tabs, float, or open in native windows, with a persistent layout.
 - Tools switch to icon-only buttons in narrow panels.
-- Smooth zoom and rotation, panning, and view mirroring.
+- Smooth zoom and rotation, panning, and view mirroring. Rotation pivots around the center of the canvas viewport to keep zoomed details in focus.
 - Translucent glass with OpenGL blur: the canvas can appear behind panels when zooming or panning.
 - Settings for the cursor, GPU, colors, appearance, and shortcuts.
 - Accent colors, glass intensity, and reduced motion.
@@ -120,6 +173,11 @@ All shortcuts can be changed under **Settings → Shortcuts**, including alterna
 | Undo / redo | Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y |
 | New / open / save | Ctrl+N / Ctrl+O / Ctrl+S |
 | Close canvas / export PNG | Ctrl+W / Ctrl+E |
+| Levels / Curves / Hue-Saturation | Ctrl+L / Ctrl+M / Ctrl+U |
+| Color Balance / Invert / Desaturate | Ctrl+B / Ctrl+I / Ctrl+Shift+U |
+| Image Size / Canvas Size | Ctrl+Alt+I / Ctrl+Alt+C |
+| Repeat last filter | Ctrl+Alt+F |
+| Auto Tone / Auto Contrast / Auto Color | Ctrl+Shift+L / Ctrl+Alt+Shift+L / Ctrl+Shift+B |
 
 ## Drawing tablets on Linux
 
@@ -137,7 +195,7 @@ Automated validation does not replace testing contact, pressure, and the dial wi
 
 ## Projects, preferences, and limits
 
-- **`.patlas` v4** projects preserve pixels, layers, opacity, visibility, alpha lock, DPI, and blend modes. Versions v1–v3 are migrated when opened; older app versions cannot open v4.
+- **`.patlas` v7** projects preserve pixels, layer groups, live group effects and hierarchy, opacity, visibility, alpha lock, DPI, blend modes, and organizational label colors. Versions v1–v6 are migrated when opened; older app versions cannot open v7.
 - Per-document limits: **4096 × 4096 pixels**, up to **32 layers**, and **256 MiB** of pixel data. The memory limit may prevent reaching both the maximum dimensions and layer count at the same time.
 - History: up to **30 actions**, with a target budget of **128 MiB**. Older actions are removed when the budget is exceeded; at least one is retained. History belongs to each document's session and is not saved in the project.
 - DPI is print metadata and does not multiply the pixel count. Exported PNG files include resolution metadata.
@@ -157,6 +215,8 @@ Brushes rasterize on the CPU; previews and blend modes use OpenGL. During freeha
 | `src/selection*.rs` | Masks, transforms, and previews |
 | `src/blend.rs`, `src/blend_gpu.rs` | CPU/GPU blend modes |
 | `src/clipboard*.rs`, `src/image_drop*.rs` | Clipboard and drag-and-drop import |
+| `src/image_menu.rs`, `src/image_ops.rs` | Image adjustments, geometry, previews, and background jobs |
+| `src/filter_ui.rs`, `src/filters.rs` | Filter catalog, gallery, and raster processing |
 | `src/tablet.rs`, `src/tablet/` | Pen input and pressure |
 | `src/shortcuts.rs`, `src/shortcut_settings.rs` | Shortcut registry and configuration |
 | `src/theme.rs`, `src/glass_gpu.rs`, `src/canvas_backdrop.rs` | Appearance, glass, and canvas backdrop |

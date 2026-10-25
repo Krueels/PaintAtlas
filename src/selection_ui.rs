@@ -268,7 +268,20 @@ impl PaintAtlas {
                 .unwrap_or_else(|| "Imagem colada".into());
             self.rename = self.doc.layers[self.doc.active].name.clone();
         }
-        self.doc.layers[floating.layer].pixels = pixels;
+        if !floating.new_layer && self.doc.layers[floating.layer].group.is_some() {
+            if let Some(mask) = &self.selection.mask {
+                self.doc
+                    .transform_group_children(floating.layer, &floating, mask);
+            }
+        } else {
+            let target = if floating.new_layer {
+                self.doc.active
+            } else {
+                floating.layer
+            };
+            self.doc.layers[target].pixels = pixels;
+        }
+        self.selected_layers.clear();
         self.selection.mask = mask;
         self.doc.selection = self.selection.mask.clone();
         self.changed();
@@ -295,16 +308,32 @@ impl PaintAtlas {
             return;
         }
         self.checkpoint();
-        for (pixel, &coverage) in self.doc.layers[self.doc.active]
-            .pixels
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(&mask.values)
-        {
-            pixel[3] = (pixel[3] as f32 * (1.0 - coverage as f32 / 255.0)).round() as u8;
-            if pixel[3] == 0 {
-                pixel[..3].fill(0);
+        let active = self.doc.active;
+        let group = self.doc.layers[active].group;
+        let targets: Vec<_> = (0..self.doc.layers.len())
+            .filter(|&i| {
+                if let Some(id) = group {
+                    self.doc.belongs_to(i, id)
+                        && self.doc.layers[i].group.is_none()
+                        && self.doc.layers[i].visible
+                        && !self.doc.layers[i].alpha_lock
+                } else {
+                    i == active
+                }
+            })
+            .collect();
+        for index in targets {
+            for (pixel, &coverage) in self.doc.layers[index]
+                .pixels
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(&mask.values)
+            {
+                pixel[3] = (pixel[3] as f32 * (1.0 - coverage as f32 / 255.0)).round() as u8;
+                if pixel[3] == 0 {
+                    pixel[..3].fill(0);
+                }
             }
         }
         self.changed();

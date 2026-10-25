@@ -8,6 +8,10 @@ const MAX_HISTORY_BYTES: usize = 128 * 1024 * 1024;
 
 #[derive(PartialEq)]
 struct LayerProperties {
+    effects: std::sync::Arc<Vec<crate::layer_groups::GroupEffect>>,
+    group: Option<u64>,
+    parent: Option<u64>,
+    label_color: Option<[u8; 3]>,
     blend_mode: crate::blend::BlendMode,
     name: String,
     visible: bool,
@@ -17,6 +21,10 @@ struct LayerProperties {
 impl LayerProperties {
     fn from(layer: &Layer) -> Self {
         Self {
+            effects: layer.effects.clone(),
+            group: layer.group,
+            parent: layer.parent,
+            label_color: layer.label_color,
             blend_mode: layer.blend_mode,
             name: layer.name.clone(),
             visible: layer.visible,
@@ -25,13 +33,21 @@ impl LayerProperties {
         }
     }
     fn differs(a: &Layer, b: &Layer) -> bool {
-        a.blend_mode != b.blend_mode
+        (!std::sync::Arc::ptr_eq(&a.effects, &b.effects) && a.effects != b.effects)
+            || a.group != b.group
+            || a.parent != b.parent
+            || a.label_color != b.label_color
+            || a.blend_mode != b.blend_mode
             || a.name != b.name
             || a.visible != b.visible
             || a.opacity != b.opacity
             || a.alpha_lock != b.alpha_lock
     }
     fn swap(&mut self, layer: &mut Layer) {
+        std::mem::swap(&mut self.effects, &mut layer.effects);
+        std::mem::swap(&mut self.group, &mut layer.group);
+        std::mem::swap(&mut self.parent, &mut layer.parent);
+        std::mem::swap(&mut self.label_color, &mut layer.label_color);
         std::mem::swap(&mut self.blend_mode, &mut layer.blend_mode);
         std::mem::swap(&mut self.name, &mut layer.name);
         std::mem::swap(&mut self.visible, &mut layer.visible);
@@ -49,6 +65,7 @@ struct TilePatch {
 }
 struct Delta {
     active: usize,
+    dpi: u32,
     properties: Vec<(usize, LayerProperties)>,
     tiles: Vec<TilePatch>,
 }
@@ -75,6 +92,7 @@ impl Entry {
         let height = before.height as usize;
         let mut delta = Delta {
             active: before.active,
+            dpi: before.dpi,
             properties: Vec::new(),
             tiles: Vec::new(),
         };
@@ -110,7 +128,7 @@ impl Entry {
         }
         // Changing only the selected layer, or an operation that painted no
         // pixels, must not consume a history step or destroy redo.
-        if delta.tiles.is_empty() && delta.properties.is_empty() {
+        if delta.tiles.is_empty() && delta.properties.is_empty() && before.dpi == after.dpi {
             None
         } else {
             Some(Self::Tiles(delta))
@@ -130,7 +148,11 @@ impl Entry {
                     + delta
                         .properties
                         .iter()
-                        .map(|(_, p)| p.name.len() + std::mem::size_of::<LayerProperties>())
+                        .map(|(_, p)| {
+                            p.name.len()
+                                + std::mem::size_of::<LayerProperties>()
+                                + p.effects.iter().map(|e| e.bytes()).sum::<usize>()
+                        })
                         .sum::<usize>()
             }
         }
@@ -141,6 +163,7 @@ impl Entry {
             Self::Structure(previous) => std::mem::swap(previous, doc),
             Self::Tiles(delta) => {
                 std::mem::swap(&mut delta.active, &mut doc.active);
+                std::mem::swap(&mut delta.dpi, &mut doc.dpi);
                 for (layer, properties) in &mut delta.properties {
                     properties.swap(&mut doc.layers[*layer]);
                 }
@@ -193,12 +216,60 @@ impl History {
     }
     /// A metadata-only edit must not copy or compare document pixel buffers.
     pub fn push_layer_properties(&mut self, doc: &Document) {
+        self.push_layers_properties(doc, &[doc.active]);
+    }
+    pub fn push_layers_properties(&mut self, doc: &Document, layers: &[usize]) {
         self.commit(doc);
         self.pending_properties = Some(Delta {
             active: doc.active,
-            properties: vec![(doc.active, LayerProperties::from(&doc.layers[doc.active]))],
+            dpi: doc.dpi,
+            properties: layers
+                .iter()
+                .map(|&index| (index, LayerProperties::from(&doc.layers[index])))
+                .collect(),
             tiles: Vec::new(),
         });
+    }
+    /// Record an already computed edit of one layer without cloning other layers.
+    pub fn record_layer_pixels(&mut self, doc: &Document, layer: usize, before: &[u8]) {
+        self.commit(doc);
+        assert_eq!(before.len(), doc.layers[layer].pixels.len());
+        let width = doc.width as usize;
+        let height = doc.height as usize;
+        let after = &doc.layers[layer].pixels;
+        let mut tiles = Vec::new();
+        for y in (0..height).step_by(TILE) {
+            for x in (0..width).step_by(TILE) {
+                let w = TILE.min(width - x);
+                let h = TILE.min(height - y);
+                if (y..y + h).any(|row| {
+                    let start = (row * width + x) * 4;
+                    before[start..start + w * 4] != after[start..start + w * 4]
+                }) {
+                    let mut pixels = Vec::with_capacity(w * h * 4);
+                    for row in y..y + h {
+                        let start = (row * width + x) * 4;
+                        pixels.extend_from_slice(&before[start..start + w * 4]);
+                    }
+                    tiles.push(TilePatch {
+                        layer,
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                        pixels,
+                    });
+                }
+            }
+        }
+        if !tiles.is_empty() {
+            self.append(Entry::Tiles(Delta {
+                active: doc.active,
+                dpi: doc.dpi,
+                properties: Vec::new(),
+                tiles,
+            }));
+        }
     }
     pub fn commit(&mut self, doc: &Document) {
         let stroke = self.stroke_layer.take().and_then(|layer| {
@@ -227,6 +298,7 @@ impl History {
             }
             (!patches.is_empty()).then_some(Entry::Tiles(Delta {
                 active: layer,
+                dpi: doc.dpi,
                 properties: Vec::new(),
                 tiles: patches,
             }))
@@ -235,7 +307,7 @@ impl History {
             delta
                 .properties
                 .retain(|(index, before)| *before != LayerProperties::from(&doc.layers[*index]));
-            (!delta.properties.is_empty()).then_some(Entry::Tiles(delta))
+            (!delta.properties.is_empty() || delta.dpi != doc.dpi).then_some(Entry::Tiles(delta))
         });
         let entry = stroke.or(properties).or_else(|| {
             self.pending
@@ -243,13 +315,15 @@ impl History {
                 .and_then(|before| Entry::between(before, doc))
         });
         if let Some(entry) = entry {
-            self.redo.clear();
-            self.undo.push_back(entry);
-            let mut bytes = self.undo.iter().map(Entry::bytes).sum::<usize>();
-            while self.undo.len() > 1 && (self.undo.len() > MAX_STEPS || bytes > MAX_HISTORY_BYTES)
-            {
-                bytes = bytes.saturating_sub(self.undo.pop_front().unwrap().bytes());
-            }
+            self.append(entry);
+        }
+    }
+    fn append(&mut self, entry: Entry) {
+        self.redo.clear();
+        self.undo.push_back(entry);
+        let mut bytes = self.undo.iter().map(Entry::bytes).sum::<usize>();
+        while self.undo.len() > 1 && (self.undo.len() > MAX_STEPS || bytes > MAX_HISTORY_BYTES) {
+            bytes = bytes.saturating_sub(self.undo.pop_front().unwrap().bytes());
         }
     }
     pub fn counts(&self) -> (usize, usize) {

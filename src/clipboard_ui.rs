@@ -89,7 +89,8 @@ impl PaintAtlas {
         Ok(())
     }
     pub(super) fn clipboard_shortcuts(&mut self, ctx: &egui::Context) -> bool {
-        if self.preferences.capturing_shortcut()
+        if self.image_editor.is_some()
+            || self.preferences.capturing_shortcut()
             || ctx.wants_keyboard_input()
             || self.pending.is_some()
             || (self.new_dialog && !self.startup_canvas_required)

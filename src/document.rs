@@ -7,7 +7,10 @@ pub type StrokeTiles = std::collections::BTreeMap<(usize, usize), Vec<u8>>;
 
 pub const MAX_SIDE: u32 = 4096;
 const MAX_BYTES: usize = 256 * 1024 * 1024;
-const MAGIC: &[u8] = b"PAINTATLAS\x04";
+const MAGIC: &[u8] = b"PAINTATLAS\x07";
+const MAGIC_V6: &[u8] = b"PAINTATLAS\x06";
+const MAGIC_V5: &[u8] = b"PAINTATLAS\x05";
+const MAGIC_V4: &[u8] = b"PAINTATLAS\x04";
 const MAGIC_V3: &[u8] = b"PAINTATLAS\x03";
 const MAGIC_V2: &[u8] = b"PAINTATLAS\x02";
 pub const DEFAULT_DPI: u32 = 300;
@@ -16,6 +19,10 @@ const MAGIC_V1: &[u8] = b"PAINTATLAS\x01";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Layer {
+    pub effects: std::sync::Arc<Vec<crate::layer_groups::GroupEffect>>,
+    pub group: Option<u64>,
+    pub parent: Option<u64>,
+    pub label_color: Option<[u8; 3]>,
     pub blend_mode: crate::blend::BlendMode,
     pub name: String,
     pub visible: bool,
@@ -107,6 +114,10 @@ impl Document {
         let mut layers = Vec::new();
         if let Some(color) = paper {
             layers.push(Layer {
+                effects: Default::default(),
+                group: None,
+                parent: None,
+                label_color: None,
                 blend_mode: Default::default(),
                 name: "Papel".into(),
                 visible: true,
@@ -116,6 +127,10 @@ impl Document {
             });
         }
         layers.push(Layer {
+            effects: Default::default(),
+            group: None,
+            parent: None,
+            label_color: None,
             blend_mode: Default::default(),
             name: "Camada 1".into(),
             visible: true,
@@ -136,7 +151,10 @@ impl Document {
         }
     }
     pub fn bytes(&self) -> usize {
-        self.layers.iter().map(|l| l.pixels.len()).sum()
+        self.layers
+            .iter()
+            .map(|l| l.pixels.len() + l.effects.iter().map(|e| e.bytes()).sum::<usize>())
+            .sum()
     }
     pub fn can_add(&self) -> bool {
         self.layers.len() < 32
@@ -146,10 +164,19 @@ impl Document {
         if !self.can_add() {
             return;
         }
-        self.active += 1;
+        let parent = self.layers[self.active]
+            .group
+            .or(self.layers[self.active].parent);
+        if self.layers[self.active].group.is_none() {
+            self.active += 1;
+        }
         self.layers.insert(
             self.active,
             Layer {
+                effects: Default::default(),
+                group: None,
+                parent,
+                label_color: None,
                 blend_mode: Default::default(),
                 name: format!("Camada {}", self.layers.len()),
                 visible: true,
@@ -162,7 +189,7 @@ impl Document {
     pub fn composite(&self) -> Vec<u8> {
         let mut out = vec![0; (self.width * self.height * 4) as usize];
         for l in &self.layers {
-            if !l.visible {
+            if !l.visible || l.parent.is_some() {
                 continue;
             }
             for (dst, src) in out
@@ -449,6 +476,7 @@ impl Document {
         }) {
             return Err("Dados de camada inválidos.".into());
         }
+        self.validate_groups()?;
         Ok(())
     }
     pub fn save(&self, path: &Path) -> Result<(), String> {
@@ -466,10 +494,100 @@ impl Document {
         }
         let data = std::fs::read(path).map_err(|e| e.to_string())?;
         let options = bincode::DefaultOptions::new().with_limit(MAX_BYTES as u64 + 65536);
-        let doc: Self = if data.starts_with(MAGIC) {
+        let mut doc: Self = if data.starts_with(MAGIC) {
             options
                 .deserialize(&data[MAGIC.len()..])
                 .map_err(|e| e.to_string())?
+        } else if data.starts_with(MAGIC_V6) {
+            let old: LegacyDocumentV6 = options
+                .deserialize(&data[MAGIC_V6.len()..])
+                .map_err(|e| e.to_string())?;
+            Self {
+                width: old.width,
+                height: old.height,
+                dpi: old.dpi,
+                active: old.active,
+                layers: old
+                    .layers
+                    .into_iter()
+                    .map(|l| Layer {
+                        effects: Default::default(),
+                        group: l.group,
+                        parent: l.parent,
+                        label_color: l.label_color,
+                        blend_mode: l.blend_mode,
+                        name: l.name,
+                        visible: l.visible,
+                        opacity: l.opacity,
+                        pixels: l.pixels,
+                        alpha_lock: l.alpha_lock,
+                    })
+                    .collect(),
+                selection: None,
+                damage: None,
+                dirty_tiles: Default::default(),
+                stroke_tiles: Default::default(),
+            }
+        } else if data.starts_with(MAGIC_V5) {
+            let old: LegacyDocumentV5 = options
+                .deserialize(&data[MAGIC_V5.len()..])
+                .map_err(|e| e.to_string())?;
+            Self {
+                width: old.width,
+                height: old.height,
+                dpi: old.dpi,
+                active: old.active,
+                layers: old
+                    .layers
+                    .into_iter()
+                    .map(|l| Layer {
+                        effects: Default::default(),
+                        group: None,
+                        parent: None,
+                        label_color: l.label_color,
+                        blend_mode: l.blend_mode,
+                        name: l.name,
+                        visible: l.visible,
+                        opacity: l.opacity,
+                        pixels: l.pixels,
+                        alpha_lock: l.alpha_lock,
+                    })
+                    .collect(),
+                selection: None,
+                damage: None,
+                dirty_tiles: Default::default(),
+                stroke_tiles: Default::default(),
+            }
+        } else if data.starts_with(MAGIC_V4) {
+            let old: LegacyDocumentV4 = options
+                .deserialize(&data[MAGIC_V4.len()..])
+                .map_err(|e| e.to_string())?;
+            Self {
+                width: old.width,
+                height: old.height,
+                dpi: old.dpi,
+                layers: old
+                    .layers
+                    .into_iter()
+                    .map(|l| Layer {
+                        effects: Default::default(),
+                        group: None,
+                        parent: None,
+                        label_color: None,
+                        blend_mode: l.blend_mode,
+                        name: l.name,
+                        visible: l.visible,
+                        opacity: l.opacity,
+                        pixels: l.pixels,
+                        alpha_lock: l.alpha_lock,
+                    })
+                    .collect(),
+                active: old.active,
+                selection: None,
+                damage: None,
+                dirty_tiles: Default::default(),
+                stroke_tiles: Default::default(),
+            }
         } else if data.starts_with(MAGIC_V3) {
             let old: LegacyDocumentV3 = options
                 .deserialize(&data[MAGIC_V3.len()..])
@@ -517,6 +635,10 @@ impl Document {
                     .layers
                     .into_iter()
                     .map(|l| Layer {
+                        effects: Default::default(),
+                        group: None,
+                        parent: None,
+                        label_color: None,
                         blend_mode: Default::default(),
                         name: l.name,
                         visible: l.visible,
@@ -530,6 +652,7 @@ impl Document {
             return Err("Este não é um projeto PaintAtlas válido.".into());
         };
         doc.validate()?;
+        doc.rebuild_groups(None);
         Ok(doc)
     }
     pub fn import(path: &Path) -> Result<Self, String> {
@@ -572,6 +695,61 @@ impl Document {
     }
 }
 #[derive(Serialize, Deserialize)]
+struct LegacyLayerV6 {
+    group: Option<u64>,
+    parent: Option<u64>,
+    label_color: Option<[u8; 3]>,
+    blend_mode: crate::blend::BlendMode,
+    name: String,
+    visible: bool,
+    opacity: f32,
+    pixels: Vec<u8>,
+    alpha_lock: bool,
+}
+#[derive(Serialize, Deserialize)]
+struct LegacyDocumentV6 {
+    width: u32,
+    height: u32,
+    dpi: u32,
+    layers: Vec<LegacyLayerV6>,
+    active: usize,
+}
+#[derive(Serialize, Deserialize)]
+struct LegacyLayerV5 {
+    label_color: Option<[u8; 3]>,
+    blend_mode: crate::blend::BlendMode,
+    name: String,
+    visible: bool,
+    opacity: f32,
+    pixels: Vec<u8>,
+    alpha_lock: bool,
+}
+#[derive(Serialize, Deserialize)]
+struct LegacyDocumentV5 {
+    width: u32,
+    height: u32,
+    dpi: u32,
+    layers: Vec<LegacyLayerV5>,
+    active: usize,
+}
+#[derive(Serialize, Deserialize)]
+struct LegacyLayerV4 {
+    blend_mode: crate::blend::BlendMode,
+    name: String,
+    visible: bool,
+    opacity: f32,
+    pixels: Vec<u8>,
+    alpha_lock: bool,
+}
+#[derive(Serialize, Deserialize)]
+struct LegacyDocumentV4 {
+    width: u32,
+    height: u32,
+    dpi: u32,
+    layers: Vec<LegacyLayerV4>,
+    active: usize,
+}
+#[derive(Serialize, Deserialize)]
 struct LegacyLayerV3 {
     name: String,
     visible: bool,
@@ -582,6 +760,10 @@ struct LegacyLayerV3 {
 impl From<LegacyLayerV3> for Layer {
     fn from(l: LegacyLayerV3) -> Self {
         Self {
+            effects: Default::default(),
+            group: None,
+            parent: None,
+            label_color: None,
             name: l.name,
             visible: l.visible,
             opacity: l.opacity,
@@ -676,6 +858,47 @@ mod tests {
             )),
         }
     }
+    #[test]
+    fn label_colors_roundtrip_and_v4_projects_keep_blend_modes() {
+        let mut doc = Document::new(4, 4, true);
+        doc.layers[1].label_color = Some([239, 100, 112]);
+        doc.layers[1].blend_mode = crate::blend::BlendMode::Multiply;
+        doc.layers[1].opacity = 0.4;
+        doc.layers[1].alpha_lock = true;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("colors.patlas");
+        doc.save(&path).unwrap();
+        let loaded = Document::open(&path).unwrap();
+        assert_eq!(loaded.layers[1].label_color, Some([239, 100, 112]));
+        let old = LegacyDocumentV4 {
+            width: doc.width,
+            height: doc.height,
+            dpi: doc.dpi,
+            active: doc.active,
+            layers: doc
+                .layers
+                .iter()
+                .map(|layer| LegacyLayerV4 {
+                    blend_mode: layer.blend_mode,
+                    name: layer.name.clone(),
+                    visible: layer.visible,
+                    opacity: layer.opacity,
+                    pixels: layer.pixels.clone(),
+                    alpha_lock: layer.alpha_lock,
+                })
+                .collect(),
+        };
+        let mut bytes = MAGIC_V4.to_vec();
+        bytes.extend(bincode::DefaultOptions::new().serialize(&old).unwrap());
+        std::fs::write(&path, bytes).unwrap();
+        let loaded = Document::open(&path).unwrap();
+        assert_eq!(loaded.layers[1].label_color, None);
+        assert_eq!(loaded.layers[1].blend_mode, doc.layers[1].blend_mode);
+        assert_eq!(loaded.layers[1].opacity, 0.4);
+        assert!(loaded.layers[1].alpha_lock);
+        assert_eq!(loaded.composite(), doc.composite());
+    }
+
     #[test]
     fn v3_projects_migrate_layers_to_normal_preserving_dpi_alpha_lock_and_pixels() {
         let mut doc = Document::with_paper(8, 6, Some([100, 180, 240]), 600);
@@ -1002,5 +1225,80 @@ mod tests {
         assert_eq!(d.composite(), vec![255, 128, 128, 255]);
         d.layers[1].visible = false;
         assert_eq!(d.composite(), vec![255; 4]);
+    }
+    #[test]
+    fn version_five_projects_migrate_without_groups_or_pixel_changes() {
+        let doc = Document::new(3, 2, true);
+        let old = LegacyDocumentV5 {
+            width: doc.width,
+            height: doc.height,
+            dpi: doc.dpi,
+            active: doc.active,
+            layers: doc
+                .layers
+                .iter()
+                .map(|l| LegacyLayerV5 {
+                    label_color: Some([20, 80, 220]),
+                    blend_mode: l.blend_mode,
+                    name: l.name.clone(),
+                    visible: l.visible,
+                    opacity: l.opacity,
+                    pixels: l.pixels.clone(),
+                    alpha_lock: l.alpha_lock,
+                })
+                .collect(),
+        };
+        let mut bytes = MAGIC_V5.to_vec();
+        bytes.extend(bincode::DefaultOptions::new().serialize(&old).unwrap());
+        let path = std::env::temp_dir().join(format!(
+            "paintatlas-v5-migration-{}.patlas",
+            std::process::id()
+        ));
+        std::fs::write(&path, bytes).unwrap();
+        let loaded = Document::open(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(loaded.composite(), doc.composite());
+        assert!(loaded.layers.iter().all(|l| l.group.is_none()
+            && l.parent.is_none()
+            && l.label_color == Some([20, 80, 220])));
+    }
+    #[test]
+    fn version_six_group_hierarchy_migrates_with_editable_children() {
+        let mut doc = Document::new(3, 2, true);
+        doc.group_layers(&[1]);
+        let old = LegacyDocumentV6 {
+            width: doc.width,
+            height: doc.height,
+            dpi: doc.dpi,
+            active: doc.active,
+            layers: doc
+                .layers
+                .iter()
+                .map(|l| LegacyLayerV6 {
+                    group: l.group,
+                    parent: l.parent,
+                    label_color: l.label_color,
+                    blend_mode: l.blend_mode,
+                    name: l.name.clone(),
+                    visible: l.visible,
+                    opacity: l.opacity,
+                    pixels: l.pixels.clone(),
+                    alpha_lock: l.alpha_lock,
+                })
+                .collect(),
+        };
+        let mut bytes = MAGIC_V6.to_vec();
+        bytes.extend(bincode::DefaultOptions::new().serialize(&old).unwrap());
+        let path = std::env::temp_dir().join(format!(
+            "paintatlas-v6-migration-{}.patlas",
+            std::process::id()
+        ));
+        std::fs::write(&path, bytes).unwrap();
+        let loaded = Document::open(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(loaded.layers.len(), 3);
+        assert_eq!(loaded.layers[1].parent, loaded.layers[2].group);
+        assert!(loaded.layers.iter().all(|l| l.effects.is_empty()));
+        assert_eq!(loaded.composite(), doc.composite());
     }
 }

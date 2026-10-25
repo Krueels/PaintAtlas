@@ -5,8 +5,14 @@ mod canvas_backdrop;
 mod clipboard_ui;
 #[path = "documents_ui.rs"]
 mod documents_ui;
+#[path = "filter_ui.rs"]
+mod filter_ui;
 #[path = "image_drop_ui.rs"]
 mod image_drop_ui;
+#[path = "image_menu.rs"]
+mod image_menu;
+#[path = "layer_menu.rs"]
+mod layer_menu;
 #[path = "selection_ui.rs"]
 mod selection_ui;
 use crate::document::{Brush, Document, History, MAX_SIDE, Tool};
@@ -44,6 +50,8 @@ struct LayerDrag(usize);
 
 pub struct PaintAtlas {
     image_import: Option<crate::image_drop::Job>,
+    image_editor: Option<image_menu::Editor>,
+    last_filter: Option<crate::filters::Settings>,
     clipboard: crate::clipboard::SystemClipboard,
     documents: Vec<documents_ui::Tab>,
     active_document: usize,
@@ -99,6 +107,10 @@ pub struct PaintAtlas {
     zoom_animation: Option<(f32, Vec2)>,
     pan: Vec2,
     fit: bool,
+    smooth_fit: bool,
+    fit_animation: Option<f32>,
+    selected_layers: std::collections::BTreeSet<usize>,
+    collapsed_groups: std::collections::BTreeSet<u64>,
     gesture: Option<Gesture>,
     status: String,
     new_dialog: bool,
@@ -115,6 +127,7 @@ pub struct PaintAtlas {
     workspace_actions: Vec<crate::workspace::Action>,
     size_palette: crate::brush_sizes::BrushSizes,
     rename: String,
+    rename_layer_focus: bool,
     opacity_edit: bool,
     layer_motion: Option<crate::layer_motion::LayerMotion>,
     layer_row_slides: Vec<(usize, f32)>,
@@ -180,6 +193,8 @@ impl PaintAtlas {
         let canvas = settings.new_canvas.clone();
         let mut app = Self {
             image_import: None,
+            image_editor: None,
+            last_filter: None,
             clipboard: Default::default(),
             documents: vec![documents_ui::Tab {
                 id: 0,
@@ -242,6 +257,10 @@ impl PaintAtlas {
             zoom_animation: None,
             pan: Vec2::ZERO,
             fit: true,
+            smooth_fit: false,
+            fit_animation: None,
+            selected_layers: Default::default(),
+            collapsed_groups: Default::default(),
             gesture: None,
             status: "Pronto para desenhar".into(),
             new_dialog: false,
@@ -258,6 +277,7 @@ impl PaintAtlas {
             workspace_actions: Vec::new(),
             size_palette: crate::brush_sizes::BrushSizes::default(),
             rename: "Camada 1".into(),
+            rename_layer_focus: false,
             opacity_edit: false,
             layer_motion: None,
             layer_row_slides: Vec::new(),
@@ -594,6 +614,24 @@ impl PaintAtlas {
                     app.preferences.appearance_tab();
                 }
             }
+            if scene == "filter-gallery" {
+                app.open_filter(ctx, crate::filters::Kind::GaussianBlur, true, false);
+            }
+            if scene == "layer-groups" || scene == "group-effects" {
+                app.doc.add_layer();
+                app.doc.layers[2].name = "Detalhes".into();
+                app.doc.group_layers(&[1, 2]);
+                app.doc.layers[app.doc.active].name = "Personagem".into();
+                app.rename = app.doc.layers[app.doc.active].name.clone();
+                app.doc.layers[app.doc.active].label_color = Some([96, 177, 227]);
+                app.changed();
+                if scene == "group-effects" {
+                    app.open_adjustment(ctx, crate::image_ops::Adjustment::Invert);
+                }
+            }
+            if scene == "image-adjustment" {
+                app.open_adjustment(ctx, crate::image_ops::Adjustment::Curves);
+            }
             if scene == "rotated" {
                 app.angle = 30.0_f32.to_radians();
                 app.mirrored = true;
@@ -767,6 +805,7 @@ impl PaintAtlas {
         Ok(())
     }
     fn changed(&mut self) {
+        self.doc.rebuild_groups(self.doc.damage);
         self.refresh = true;
         self.dirty = true;
     }
@@ -779,6 +818,11 @@ impl PaintAtlas {
             self.opacity_edit = true;
         }
         self.doc.layers[self.doc.active].opacity = opacity;
+        if self.doc.layers[self.doc.active].parent.is_some() {
+            self.doc.rebuild_groups(None);
+            self.doc.damage = None;
+            self.refresh = true;
+        }
         self.dirty = true;
         // Opacity is a draw parameter, not a pixel edit. Reuse GPU textures.
         // Only the CPU blend fallback needs its cached composite rebuilt.
@@ -826,6 +870,10 @@ impl PaintAtlas {
         self.refresh = true;
         self.gesture = None;
         self.fit = true;
+        self.smooth_fit = false;
+        self.fit_animation = None;
+        self.selected_layers.clear();
+        self.collapsed_groups.clear();
         self.zoom_animation = None;
         self.angle = 0.0;
         self.rotation_target = None;
@@ -903,6 +951,10 @@ impl PaintAtlas {
         }
     }
     fn save(&mut self, save_as: bool) -> bool {
+        if self.image_editor.is_some() {
+            self.status = "Aplique ou cancele a operação de imagem antes de salvar.".into();
+            return false;
+        }
         if self.selection.floating.is_some() {
             self.status = "Aplique ou cancele a transformação antes de salvar.".into();
             return false;
@@ -935,6 +987,10 @@ impl PaintAtlas {
         }
     }
     fn export(&mut self) {
+        if self.image_editor.is_some() {
+            self.status = "Aplique ou cancele a operação de imagem antes de exportar.".into();
+            return;
+        }
         if let Some(mut path) = rfd::FileDialog::new()
             .add_filter("Imagem PNG", &["png"])
             .set_file_name("desenho.png")
@@ -948,6 +1004,7 @@ impl PaintAtlas {
         }
     }
     fn undo(&mut self) {
+        self.selected_layers.clear();
         self.layer_motion = None;
         self.layer_row_slides.clear();
         if self.history.undo(&mut self.doc) {
@@ -962,6 +1019,7 @@ impl PaintAtlas {
         }
     }
     fn redo(&mut self) {
+        self.selected_layers.clear();
         self.layer_motion = None;
         self.layer_row_slides.clear();
         if self.history.redo(&mut self.doc) {
@@ -976,7 +1034,7 @@ impl PaintAtlas {
         }
     }
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if self.preferences.capturing_shortcut() {
+        if self.preferences.capturing_shortcut() || self.image_editor.is_some() {
             return;
         }
         if self.clipboard_shortcuts(ctx) {
@@ -1012,7 +1070,19 @@ impl PaintAtlas {
                 .collect::<Vec<_>>()
         });
         for action in actions {
+            if self.image_shortcut(ctx, action) {
+                continue;
+            }
+            if self.image_editor.is_some() {
+                break;
+            }
             match action {
+                Shortcut::LayerGroup => {
+                    self.apply_layer_action(self.doc.active, layer_menu::LayerAction::Group)
+                }
+                Shortcut::LayerMerge => {
+                    self.apply_layer_action(self.doc.active, layer_menu::LayerAction::MergeSelected)
+                }
                 Shortcut::New => self.request(Action::New),
                 Shortcut::Open => self.request(Action::Open),
                 Shortcut::Save => {
@@ -1051,7 +1121,10 @@ impl PaintAtlas {
                 Shortcut::RotateLeft => self.request_rotation(-15.0_f32.to_radians()),
                 Shortcut::RotateRight => self.request_rotation(15.0_f32.to_radians()),
                 Shortcut::Mirror => self.mirrored = !self.mirrored,
-                Shortcut::Fit => self.fit = true,
+                Shortcut::Fit => {
+                    self.fit = true;
+                    self.smooth_fit = true;
+                }
                 _ => {}
             }
         }
@@ -1060,10 +1133,14 @@ impl PaintAtlas {
         egui::TopBottomPanel::top("header")
             .frame(egui::Frame::side_top_panel(&ctx.style()).corner_radius(8))
             .show(ctx, |ui| {
+                if self.image_editor.is_some() {
+                    ui.visuals_mut().disabled_alpha = 1.0;
+                }
                 if self.gesture.is_some()
                     || self.selection.floating.is_some()
                     || self.pending.is_some()
                     || self.new_dialog
+                    || self.image_editor.is_some()
                 {
                     ui.disable();
                 }
@@ -1189,6 +1266,8 @@ impl PaintAtlas {
                             ui.close();
                         }
                     });
+                    self.image_menu(ui);
+                    self.filter_menu(ui);
                     if crate::theme::button(ui, "Configurações").clicked() {
                         self.workspace_actions.push(crate::workspace::Action::Open(
                             crate::workspace::Panel::Settings,
@@ -1270,12 +1349,13 @@ impl PaintAtlas {
             });
     }
     fn sync_layer_textures(&mut self, ctx: &egui::Context) {
-        if self.blend_shader.is_none()
-            && self
-                .doc
-                .layers
-                .iter()
-                .any(|l| l.visible && l.blend_mode != crate::blend::BlendMode::Normal)
+        if self.group_transform_preview()
+            || self.blend_shader.is_none()
+                && self
+                    .doc
+                    .layers
+                    .iter()
+                    .any(|l| l.visible && l.blend_mode != crate::blend::BlendMode::Normal)
         {
             if self.refresh
                 || self.blend_fallback_dirty
@@ -1301,6 +1381,13 @@ impl PaintAtlas {
             self.blend_fallback = None;
         }
         self.blend_fallback_dirty = false;
+        if self.refresh
+            && self.doc.damage.is_some()
+            && self.doc.layers.iter().any(|l| !l.effects.is_empty())
+        {
+            self.doc.damage = Some([0, 0, self.doc.width as usize, self.doc.height as usize]);
+            self.doc.dirty_tiles.clear();
+        }
         if self.refresh {
             if let Some(d) = self
                 .doc
@@ -1331,6 +1418,32 @@ impl PaintAtlas {
                 }
                 if runs.is_empty() {
                     runs.push(d);
+                }
+                // Child edits also invalidate their isolated ancestor composites.
+                self.doc
+                    .rebuild_groups_after(Some(d), Some(self.doc.active));
+                for index in 0..self.doc.layers.len() {
+                    if self.doc.layers[index]
+                        .group
+                        .is_some_and(|id| self.doc.belongs_to(self.doc.active, id))
+                    {
+                        let pixels = &self.doc.layers[index].pixels;
+                        let mut rgba = Vec::with_capacity((d[2] - d[0]) * (d[3] - d[1]) * 4);
+                        for y in d[1]..d[3] {
+                            rgba.extend_from_slice(
+                                &pixels[(y * self.doc.width as usize + d[0]) * 4
+                                    ..(y * self.doc.width as usize + d[2]) * 4],
+                            );
+                        }
+                        self.textures[index].set_partial(
+                            [d[0], d[1]],
+                            egui::ColorImage::from_rgba_unmultiplied(
+                                [d[2] - d[0], d[3] - d[1]],
+                                &rgba,
+                            ),
+                            egui::TextureOptions::NEAREST,
+                        );
+                    }
                 }
                 let pixels = &self.doc.layers[self.doc.active].pixels;
                 for r in runs {
@@ -1389,7 +1502,7 @@ impl PaintAtlas {
         }
     }
     fn layer_preview_row(&mut self, ui: &mut egui::Ui, index: usize) -> egui::Response {
-        let selected = self.doc.active == index;
+        let selected = self.doc.active == index || self.selected_layers.contains(&index);
         let (rect, _) =
             ui.allocate_exact_size(Vec2::new(ui.available_width(), 52.0), Sense::hover());
         let offset = self
@@ -1425,6 +1538,16 @@ impl PaintAtlas {
             visuals.bg_stroke,
             egui::StrokeKind::Inside,
         );
+        if let Some([r, g, b]) = self.doc.layers[index].label_color {
+            row_painter.rect_filled(
+                egui::Rect::from_min_max(
+                    Pos2::new(rect.right() - 6.0, rect.top() + 8.0),
+                    Pos2::new(rect.right() - 3.0, rect.bottom() - 8.0),
+                ),
+                2.0,
+                Color32::from_rgb(r, g, b),
+            );
+        }
         let preview_box =
             egui::Rect::from_min_size(rect.min + Vec2::new(5.0, 6.0), Vec2::new(48.0, 40.0));
         row_painter.rect_filled(preview_box, 2.0, Color32::from_gray(18));
@@ -1468,7 +1591,11 @@ impl PaintAtlas {
         painter.text(
             Pos2::new(text_rect.min.x, rect.min.y + 10.0),
             egui::Align2::LEFT_TOP,
-            &layer.name,
+            if layer.group.is_some() {
+                format!("▣ {}", layer.name)
+            } else {
+                layer.name.clone()
+            },
             egui::FontId::proportional(12.0),
             visuals.text_color(),
         );
@@ -1478,13 +1605,18 @@ impl PaintAtlas {
             format!(" · {}", layer.blend_mode.label())
         };
         let info = format!(
-            "{:.0}%{}{}",
+            "{:.0}%{}{}{}",
             layer.opacity * 100.0,
             mode_info,
             if layer.alpha_lock {
                 " · alfa bloqueado"
             } else {
                 ""
+            },
+            if layer.effects.is_empty() {
+                String::new()
+            } else {
+                format!(" · {} efeito(s)", layer.effects.len())
             }
         );
         painter.text(
@@ -1534,9 +1666,19 @@ impl PaintAtlas {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         }
         if response.clicked() {
-            self.commit_name();
-            self.doc.active = index;
-            self.rename = self.doc.layers[index].name.clone();
+            self.select_layer(
+                index,
+                ui.input(|i| {
+                    self.settings
+                        .shortcuts
+                        .held(i, Shortcut::LayerToggleSelection)
+                }),
+                ui.input(|i| {
+                    self.settings
+                        .shortcuts
+                        .held(i, Shortcut::LayerRangeSelection)
+                }),
+            );
         }
         response
     }
@@ -1547,6 +1689,7 @@ impl PaintAtlas {
             .show(ctx, |ui| self.canvas_ui(ui));
     }
     fn request_zoom(&mut self, factor: f32, reset: bool, anchor: Vec2) {
+        self.fit_animation = None;
         let target = if reset {
             1.0
         } else {
@@ -1587,6 +1730,7 @@ impl PaintAtlas {
         let Some(target) = self.rotation_target else {
             return;
         };
+        let old_angle = self.angle;
         let remaining = target - self.angle;
         if self.settings.appearance.reduced_motion || remaining.abs() < 0.0005 {
             self.angle = target.rem_euclid(std::f32::consts::TAU);
@@ -1595,6 +1739,9 @@ impl PaintAtlas {
             let blend = 1.0 - (-dt.clamp(0.0, 0.05) / 0.055).exp();
             self.angle += remaining * blend;
         }
+        // Pan is the canvas center relative to the viewport center. Rotate that
+        // offset too, keeping the document point under the viewport center fixed.
+        self.pan = egui::emath::Rot2::from_angle(self.angle - old_angle) * self.pan;
     }
 
     fn canvas_ui(&mut self, ui: &mut egui::Ui) {
@@ -1607,10 +1754,17 @@ impl PaintAtlas {
             let (sin, cos) = self.rotation_target.unwrap_or(self.angle).sin_cos();
             let width = self.doc.width as f32 * cos.abs() + self.doc.height as f32 * sin.abs();
             let height = self.doc.width as f32 * sin.abs() + self.doc.height as f32 * cos.abs();
-            self.zoom = ((bounds.width() - 72.0) / width)
+            let target = ((bounds.width() - 72.0) / width)
                 .min((bounds.height() - 72.0) / height)
                 .clamp(0.05, 16.0);
-            self.pan = Vec2::ZERO;
+            if self.smooth_fit && !self.settings.appearance.reduced_motion {
+                self.fit_animation = Some(target);
+            } else {
+                self.zoom = target;
+                self.pan = Vec2::ZERO;
+                self.fit_animation = None;
+            }
+            self.smooth_fit = false;
             self.fit = false;
         }
         self.pressure = self.tablet.pressure().unwrap_or(if self.gesture.is_some() {
@@ -1645,6 +1799,7 @@ impl PaintAtlas {
             && !ctx.wants_keyboard_input()
             && self.pending.is_none()
             && !self.new_dialog
+            && self.image_editor.is_none()
             && self.gesture.is_none()
         {
             ctx.input_mut(|i| {
@@ -1673,16 +1828,22 @@ impl PaintAtlas {
             self.request_zoom(factor, reset_zoom, anchor - bounds.center());
         }
         if (down || middle) && response.hovered() || self.gesture.is_some() {
+            self.fit_animation = None;
             self.rotation_target = None;
         }
         let dt = ctx.input(|i| i.stable_dt);
+        self.animate_fit(dt);
         self.animate_zoom(dt);
         self.animate_rotation(dt);
-        if self.zoom_animation.is_some() || self.rotation_target.is_some() {
+        if self.zoom_animation.is_some()
+            || self.rotation_target.is_some()
+            || self.fit_animation.is_some()
+        {
             ctx.request_repaint();
         }
         let panning = (space || self.tool == Tool::Hand) && down || middle;
         if panning && response.hovered() && self.gesture.is_none() {
+            self.fit_animation = None;
             self.pan += delta;
             ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
         }
@@ -1694,15 +1855,17 @@ impl PaintAtlas {
             mirrored: self.mirrored,
         };
         let to_doc = |p: Pos2| view.document(p);
-        let selection_consumed = if self.pending.is_none() && !self.new_dialog {
-            self.selection_input(ui, &response, view, panning)
-        } else {
-            true
-        };
+        let selection_consumed =
+            if self.pending.is_none() && !self.new_dialog && self.image_editor.is_none() {
+                self.selection_input(ui, &response, view, panning)
+            } else {
+                true
+            };
         if !selection_consumed
             && (!panning || self.gesture.is_some())
             && self.pending.is_none()
             && !self.new_dialog
+            && self.image_editor.is_none()
         {
             if pressed
                 && response.hovered()
@@ -1733,6 +1896,8 @@ impl PaintAtlas {
                                 self.composite[i + 2],
                             );
                         }
+                    } else if self.doc.layers[self.doc.active].group.is_some() {
+                        self.status = "Selecione uma camada dentro do grupo para desenhar.".into();
                     } else if !self.doc.layers[self.doc.active].visible {
                         self.status = "Ative a visibilidade da camada para desenhar.".into();
                     } else if self.tool == Tool::Eraser
@@ -2524,6 +2689,7 @@ impl PaintAtlas {
             {
                 self.checkpoint();
                 self.doc.add_layer();
+                self.selected_layers.clear();
                 self.rename = self.doc.layers[self.doc.active].name.clone();
                 self.changed();
             }
@@ -2531,25 +2697,48 @@ impl PaintAtlas {
                 .add_enabled(self.doc.can_add(), egui::Button::new("Duplicar"))
                 .clicked()
             {
-                self.checkpoint();
-                let mut l = self.doc.layers[self.doc.active].clone();
-                l.name = format!("{} cópia", l.name.chars().take(90).collect::<String>());
-                self.doc.active += 1;
-                self.doc.layers.insert(self.doc.active, l);
-                self.rename = self.doc.layers[self.doc.active].name.clone();
-                self.changed();
+                self.apply_layer_action(self.doc.active, layer_menu::LayerAction::Duplicate);
             }
             if ui
                 .add_enabled(self.doc.layers.len() > 1, egui::Button::new("Excluir"))
                 .clicked()
             {
-                self.checkpoint();
-                self.doc.layers.remove(self.doc.active);
-                self.doc.active = self.doc.active.min(self.doc.layers.len() - 1);
-                self.rename = self.doc.layers[self.doc.active].name.clone();
-                self.changed();
+                self.apply_layer_action(self.doc.active, layer_menu::LayerAction::Delete);
             }
         });
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .button("Agrupar")
+                .on_hover_text(self.settings.shortcuts.label(Shortcut::LayerGroup))
+                .clicked()
+            {
+                self.apply_layer_action(self.doc.active, layer_menu::LayerAction::Group);
+            }
+            if ui
+                .add_enabled(
+                    self.selected_layer_indices().len() > 1,
+                    egui::Button::new("Mesclar"),
+                )
+                .on_hover_text(
+                    self.settings
+                        .shortcuts
+                        .menu(Shortcut::LayerMerge, "Mesclar selecionadas"),
+                )
+                .clicked()
+            {
+                self.apply_layer_action(self.doc.active, layer_menu::LayerAction::MergeSelected);
+            }
+        });
+        crate::theme::caption(
+            ui,
+            format!(
+                "{}+clique: múltiplas · {}+clique: intervalo",
+                self.settings
+                    .shortcuts
+                    .label(Shortcut::LayerToggleSelection),
+                self.settings.shortcuts.label(Shortcut::LayerRangeSelection)
+            ),
+        );
         ui.label("Modo de mesclagem");
         let mut mode = self.doc.layers[self.doc.active].blend_mode;
         egui::ComboBox::from_id_salt("layer_blend_mode")
@@ -2563,6 +2752,9 @@ impl PaintAtlas {
         if mode != self.doc.layers[self.doc.active].blend_mode {
             self.checkpoint();
             self.doc.layers[self.doc.active].blend_mode = mode;
+            if self.doc.layers[self.doc.active].parent.is_some() {
+                self.changed();
+            }
             if self.blend_shader.is_none() {
                 self.refresh = true;
             }
@@ -2583,12 +2775,40 @@ impl PaintAtlas {
         self.sync_layer_textures(ctx);
         let mut drop = None;
         let mut rows = Vec::new();
+        let mut layer_action = None;
         egui::ScrollArea::vertical()
             .id_salt("layer_list")
             .max_height(240.0)
             .show(ui, |ui| {
                 for index in (0..self.doc.layers.len()).rev() {
+                    if self
+                        .collapsed_groups
+                        .iter()
+                        .any(|&id| self.doc.belongs_to(index, id))
+                    {
+                        continue;
+                    }
                     ui.horizontal(|ui| {
+                        ui.add_space(self.doc.depth(index) as f32 * 14.0);
+                        if let Some(id) = self.doc.layers[index].group {
+                            let arrow = if self.collapsed_groups.contains(&id) {
+                                "▶"
+                            } else {
+                                "▼"
+                            };
+                            let toggle = ui.add(
+                                egui::Button::new(arrow)
+                                    .small()
+                                    .min_size(Vec2::new(28.0, 18.0)),
+                            );
+                            if toggle.clicked() && !self.collapsed_groups.remove(&id) {
+                                self.collapsed_groups.insert(id);
+                            }
+                        } else {
+                            // Reserve the same disclosure column so children indent
+                            // to the right of their parent rather than to its left.
+                            ui.allocate_space(Vec2::new(28.0, 18.0));
+                        }
                         let mut visible = self.doc.layers[index].visible;
                         if ui
                             .checkbox(&mut visible, "")
@@ -2600,6 +2820,23 @@ impl PaintAtlas {
                             self.changed();
                         }
                         let response = self.layer_preview_row(ui, index);
+                        if response.secondary_clicked()
+                            && self.selection.floating.is_none()
+                            && self.gesture.is_none()
+                        {
+                            if !self.selected_layers.contains(&index) {
+                                self.selected_layers.clear();
+                            }
+                            self.commit_name();
+                            self.doc.active = index;
+                            self.selected_layers.insert(index);
+                            self.rename = self.doc.layers[index].name.clone();
+                        }
+                        response.context_menu(|ui| {
+                            if let Some(action) = self.layer_context_menu(ui, index) {
+                                layer_action = Some((index, action));
+                            }
+                        });
                         rows.push((index, response.rect));
                     });
                 }
@@ -2665,7 +2902,7 @@ impl PaintAtlas {
             }
             self.reorder_layer(source, slot);
             if let Some(motion) = &mut self.layer_motion {
-                motion.release(slot - usize::from(source < slot));
+                motion.release(self.doc.active);
             }
         }
         if let Some(mut motion) = self.layer_motion.take() {
@@ -2681,8 +2918,16 @@ impl PaintAtlas {
             }
         }
         ui.separator();
+        if let Some((index, action)) = layer_action {
+            self.apply_layer_action(index, action);
+            ctx.request_repaint();
+        }
         ui.label("Nome da camada");
         let response = ui.add(egui::TextEdit::singleline(&mut self.rename).desired_width(208.0));
+        if self.rename_layer_focus {
+            response.request_focus();
+            self.rename_layer_focus = false;
+        }
         if response.lost_focus()
             && !self.rename.trim().is_empty()
             && self.rename != self.doc.layers[self.doc.active].name
@@ -2704,7 +2949,8 @@ impl PaintAtlas {
         }
         if ui
             .add_enabled(
-                !self.doc.layers[self.doc.active].alpha_lock,
+                !self.doc.layers[self.doc.active].alpha_lock
+                    && self.doc.layers[self.doc.active].group.is_none(),
                 egui::Button::new("Limpar camada"),
             )
             .clicked()
@@ -2720,17 +2966,52 @@ impl PaintAtlas {
         if source >= self.doc.layers.len() || slot > self.doc.layers.len() {
             return;
         }
-        let destination = slot - usize::from(source < slot);
-        if destination == source {
+        let start = self.doc.block_start(source);
+        if (start..=source + 1).contains(&slot) {
+            return;
+        }
+        // Keep a moved subtree intact and adopt the destination's parent.
+        let parent = if slot < self.doc.layers.len() {
+            self.doc.layers[slot].group.or(self.doc.layers[slot].parent)
+        } else {
+            None
+        };
+        if let Some(id) = self.doc.layers[source].group
+            && parent.is_some_and(|p| p == id)
+        {
             return;
         }
         self.commit_name();
         self.checkpoint();
-        let layer = self.doc.layers.remove(source);
-        self.doc.layers.insert(destination, layer);
-        self.doc.active = destination;
-        self.rename = self.doc.layers[destination].name.clone();
+        let mut block: Vec<_> = self.doc.layers.drain(start..=source).collect();
+        block.last_mut().unwrap().parent = parent;
+        let dest = if slot > source {
+            slot - block.len()
+        } else {
+            slot
+        };
+        self.doc.active = dest + block.len() - 1;
+        self.doc.layers.splice(dest..dest, block);
+        self.selected_layers.clear();
+        self.rename = self.doc.layers[self.doc.active].name.clone();
         self.changed();
+    }
+    fn animate_fit(&mut self, dt: f32) {
+        let Some(target) = self.fit_animation else {
+            return;
+        };
+        let blend = if self.settings.appearance.reduced_motion {
+            1.0
+        } else {
+            1.0 - (-dt.clamp(0.0, 0.05) / 0.09).exp()
+        };
+        self.zoom *= ((target / self.zoom).ln() * blend).exp();
+        self.pan *= 1.0 - blend;
+        if (self.zoom / target).ln().abs() < 0.0005 && self.pan.length() < 0.1 {
+            self.zoom = target;
+            self.pan = Vec2::ZERO;
+            self.fit_animation = None;
+        }
     }
     fn navigation_ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
@@ -2780,6 +3061,7 @@ impl PaintAtlas {
                 .clicked()
             {
                 self.fit = true;
+                self.smooth_fit = true;
             }
             if crate::theme::button(ui, "+").clicked() {
                 self.request_zoom(1.25, false, Vec2::ZERO);
@@ -2806,6 +3088,8 @@ impl PaintAtlas {
         crate::theme::caption(ui, "Personalize em Configurações > Atalhos.");
         for category in [
             "Arquivo",
+            "Imagem",
+            "Filtros",
             "Edição",
             "Ferramentas",
             "Pincel",
@@ -2885,6 +3169,11 @@ impl PaintAtlas {
         self.apply_workspace_actions(ctx);
     }
     fn panel_ui(&mut self, ui: &mut egui::Ui, panel: crate::workspace::Panel) {
+        if self.image_editor.is_some() {
+            // Keep document mutations blocked during previews without dimming the canvas.
+            ui.visuals_mut().disabled_alpha = 1.0;
+            ui.disable();
+        }
         use crate::workspace::Panel;
         if panel == Panel::Canvas {
             self.document_canvas_ui(ui);
@@ -3273,6 +3562,46 @@ impl eframe::App for PaintAtlas {
             crate::shortcuts::deduplicate_clipboard_events(&mut input.events);
         }
         if self.screenshot.is_some()
+            && std::env::var("PAINTATLAS_SMOKE_SCENE")
+                .is_ok_and(|s| s == "image-menu" || s == "filter-menu")
+        {
+            input.time = Some(self.frames as f64 / 60.0);
+            let filters = std::env::var("PAINTATLAS_SMOKE_SCENE").as_deref() == Ok("filter-menu");
+            let id = match (filters, self.frames >= 10) {
+                (true, true) => "filter_blur_menu_rect",
+                (true, false) => "filter_menu_rect",
+                (false, true) => "image_adjustments_rect",
+                (false, false) => "image_menu_rect",
+            };
+            if let Some(rect) = ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(id))) {
+                input.events.push(egui::Event::PointerMoved(rect.center()));
+                if self.frames == 4 || self.frames == 5 {
+                    input.events.push(egui::Event::PointerButton {
+                        pos: rect.center(),
+                        button: egui::PointerButton::Primary,
+                        pressed: self.frames == 4,
+                        modifiers: Default::default(),
+                    });
+                }
+            }
+        }
+        // Native popup smoke test: inject events only into this opt-in test run.
+        if self.screenshot.is_some()
+            && std::env::var("PAINTATLAS_SMOKE_SCENE").as_deref() == Ok("layer-context-menu")
+            && let Some(rows) =
+                ctx.data(|d| d.get_temp::<Vec<egui::Rect>>(egui::Id::new("layer_motion_demo_rows")))
+            && let Some(rect) = rows.first()
+            && (self.frames == 4 || self.frames == 5)
+        {
+            input.events.push(egui::Event::PointerMoved(rect.center()));
+            input.events.push(egui::Event::PointerButton {
+                pos: rect.center(),
+                button: egui::PointerButton::Secondary,
+                pressed: self.frames == 4,
+                modifiers: Default::default(),
+            });
+        }
+        if self.screenshot.is_some()
             && ctx.viewport_id() == egui::ViewportId::ROOT
             && std::env::var("PAINTATLAS_SMOKE_SCENE").is_ok_and(|s| s.starts_with("layer-fluid"))
         {
@@ -3364,6 +3693,7 @@ impl eframe::App for PaintAtlas {
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.image_import = None;
+        self.image_editor = None;
         self.clipboard = Default::default();
         if let Some(shader) = &self.glass_shader {
             shader.destroy();
@@ -3388,7 +3718,7 @@ impl eframe::App for PaintAtlas {
         }
         if ctx.input(|i| i.viewport().close_requested())
             && !self.allow_close
-            && self.selection.floating.is_some()
+            && (self.selection.floating.is_some() || self.image_editor.is_some())
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.status = format!(
@@ -3430,9 +3760,10 @@ impl eframe::App for PaintAtlas {
             self.brush_editor_ui(ctx);
         }
         self.dialogs(ctx);
+        self.image_dialog(ctx);
         self.image_drop_overlay(ctx);
         crate::theme::finish_glass(ctx);
-        if self.gesture.is_none() && !self.opacity_edit {
+        if self.gesture.is_none() && !self.opacity_edit && self.image_editor.is_none() {
             self.history.commit(&self.doc);
         }
 
@@ -3451,6 +3782,19 @@ impl eframe::App for PaintAtlas {
                         600
                     }
                 }
+                Ok("filter-gallery") => {
+                    if self.frames >= 20
+                        && self
+                            .image_editor
+                            .as_ref()
+                            .is_some_and(image_menu::Editor::gallery_ready)
+                    {
+                        self.frames
+                    } else {
+                        600
+                    }
+                }
+                Ok("image-menu" | "filter-menu") => 40,
                 Ok("stabilizer") => 170,
                 Ok("stabilizer-live") => 140,
                 Ok("layer-fluid-drop") => 34,
@@ -5034,6 +5378,41 @@ mod tests {
         assert_eq!(ctx.zoom_factor(), 1.0);
     }
     #[test]
+    fn rotation_keeps_zoomed_viewport_center_fixed_through_every_animation_frame() {
+        let ctx = egui::Context::default();
+        let mut app = PaintAtlas::from_context(&ctx);
+        for mirrored in [false, true] {
+            for reduced_motion in [false, true] {
+                app.settings.appearance.reduced_motion = reduced_motion;
+                app.zoom = 4.0;
+                app.pan = Vec2::new(1600.0, -1100.0);
+                app.angle = 350.0_f32.to_radians();
+                app.rotation_target = None;
+                let view = |app: &PaintAtlas| CanvasView {
+                    center: Pos2::new(500.0, 400.0) + app.pan,
+                    size: Vec2::new(3000.0, 3000.0),
+                    zoom: app.zoom,
+                    angle: app.angle,
+                    mirrored,
+                };
+                let center = Pos2::new(500.0, 400.0);
+                let point = view(&app).document(center);
+                app.request_rotation(45.0_f32.to_radians());
+                for _ in 0..90 {
+                    app.animate_rotation(1.0 / 60.0);
+                    assert!(view(&app).screen(point).distance(center) < 0.02);
+                }
+                app.set_rotation_target(0.0);
+                for _ in 0..90 {
+                    app.animate_rotation(1.0 / 60.0);
+                    assert!(view(&app).screen(point).distance(center) < 0.02);
+                }
+                assert!(app.rotation_target.is_none());
+            }
+        }
+    }
+
+    #[test]
     fn smooth_rotation_accumulates_reverses_and_restores_across_zero() {
         let ctx = egui::Context::default();
         let mut app = PaintAtlas::from_context(&ctx);
@@ -5396,5 +5775,28 @@ mod tests {
         assert!(app.doc.composite().iter().all(|&b| b == 0));
         app.redo();
         assert_eq!(app.doc.composite(), painted);
+    }
+    #[test]
+    fn fit_animation_smoothly_centers_zoomed_canvas_and_honors_reduced_motion() {
+        let ctx = egui::Context::default();
+        let mut app = PaintAtlas::from_context(&ctx);
+        app.zoom = 8.0;
+        app.pan = Vec2::new(800.0, -600.0);
+        app.fit_animation = Some(0.7);
+        app.animate_fit(1.0 / 60.0);
+        assert!(app.zoom > 0.7 && app.zoom < 8.0);
+        assert!(app.pan.length() > 0.0 && app.pan.length() < 1000.0);
+        for _ in 0..120 {
+            app.animate_fit(1.0 / 60.0);
+        }
+        assert_eq!(app.zoom, 0.7);
+        assert_eq!(app.pan, Vec2::ZERO);
+        assert!(app.fit_animation.is_none());
+        app.pan = Vec2::splat(100.0);
+        app.fit_animation = Some(2.0);
+        app.settings.appearance.reduced_motion = true;
+        app.animate_fit(1.0 / 60.0);
+        assert_eq!(app.zoom, 2.0);
+        assert_eq!(app.pan, Vec2::ZERO);
     }
 }

@@ -40,6 +40,9 @@ impl Editor {
                     ui.selectable_value(&mut self.category, String::new(), "Todas as categorias");
                     for category in [
                         "Arquivo",
+                        "Imagem",
+                        "Filtros",
+                        "Camadas",
                         "Edição",
                         "Ferramentas",
                         "Pincel",
@@ -59,6 +62,9 @@ impl Editor {
         let search = self.search.to_lowercase();
         for category in [
             "Arquivo",
+            "Imagem",
+            "Filtros",
+            "Camadas",
             "Edição",
             "Ferramentas",
             "Pincel",
