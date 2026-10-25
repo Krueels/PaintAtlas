@@ -589,7 +589,7 @@ fn bilinear(source: &[u8], width: u32, height: u32, x: f32, y: f32) -> [u8; 4] {
         (out[3] * 255.0).round() as u8,
     ]
 }
-fn resized(
+pub(crate) fn resized(
     source: Vec<u8>,
     w: u32,
     h: u32,
@@ -612,7 +612,9 @@ fn resized(
         .0
         .iter()
         .flat_map(|p| {
-            let a = p[3] as f32 / 255.0;
+            // Leave headroom for ringing: image::resize clamps float channels
+            // to 0..1, which would otherwise clip alpha before RGB.
+            let a = p[3] as f32 / 255.0 * 0.25;
             [
                 p[0] as f32 / 255.0 * a,
                 p[1] as f32 / 255.0 * a,
@@ -627,14 +629,16 @@ fn resized(
         .pixels()
         .flat_map(|pixel| {
             let p = pixel.0;
-            let a = p[3].clamp(0.0, 1.0);
+            let a = (p[3] * 4.0).clamp(0.0, 1.0);
             if a < 1e-6 {
                 [0; 4]
             } else {
                 [
-                    (p[0] / a * 255.0).round() as u8,
-                    (p[1] / a * 255.0).round() as u8,
-                    (p[2] / a * 255.0).round() as u8,
+                    // Cubic/Lanczos kernels can overshoot alpha. Unpremultiply
+                    // with the original value before clamping the output alpha.
+                    (p[0] / p[3] * 255.0).round() as u8,
+                    (p[1] / p[3] * 255.0).round() as u8,
+                    (p[2] / p[3] * 255.0).round() as u8,
                     (a * 255.0).round() as u8,
                 ]
             }

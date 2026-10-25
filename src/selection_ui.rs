@@ -17,6 +17,7 @@ struct Drag {
 pub(super) struct State {
     pub mask: Option<Arc<Mask>>,
     pub floating: Option<Floating>,
+    generated_transform_mask: bool,
     creation: Option<Creation>,
     drag: Option<Drag>,
     pub(super) textures: Option<(egui::TextureHandle, egui::TextureHandle)>,
@@ -29,6 +30,7 @@ impl Default for State {
         Self {
             mask: None,
             floating: None,
+            generated_transform_mask: false,
             creation: None,
             drag: None,
             textures: None,
@@ -177,15 +179,60 @@ impl PaintAtlas {
         self.doc.selection = None;
     }
     pub(super) fn begin_transform(&mut self, ctx: &egui::Context, duplicate: bool) {
+        self.fill_reveal.clear();
         if self.selection.floating.is_some() {
             return;
         }
-        let Some(mask) = &self.selection.mask else {
-            self.status = "Crie uma seleção primeiro (S ou A).".into();
-            return;
+        let generated = self.selection.mask.is_none();
+        let mask = if let Some(mask) = &self.selection.mask {
+            mask.clone()
+        } else {
+            // Free Transform without a selection uses the active layer's content
+            // bounds, including translucent pixels, rather than the whole canvas.
+            let width = self.doc.width as usize;
+            let mut bounds = [width, self.doc.height as usize, 0, 0];
+            for (y, row) in self.doc.layers[self.doc.active]
+                .pixels
+                .chunks_exact(width * 4)
+                .enumerate()
+            {
+                let pixels = row.as_chunks::<4>().0;
+                if let Some(left) = pixels.iter().position(|p| p[3] != 0) {
+                    let right = pixels.iter().rposition(|p| p[3] != 0).unwrap() + 1;
+                    bounds = [
+                        bounds[0].min(left),
+                        bounds[1].min(y),
+                        bounds[2].max(right),
+                        bounds[3].max(y + 1),
+                    ];
+                }
+            }
+            if bounds[2] == 0 {
+                self.status = "A camada ativa está vazia; não há conteúdo para transformar.".into();
+                return;
+            }
+            Arc::new(
+                Mask::rectangle(
+                    self.doc.width,
+                    self.doc.height,
+                    egui::Rect::from_min_max(
+                        Pos2::new(bounds[0] as f32, bounds[1] as f32),
+                        Pos2::new(bounds[2] as f32, bounds[3] as f32),
+                    ),
+                )
+                .unwrap(),
+            )
         };
-        match Floating::new(&self.doc, mask, duplicate) {
+        let floating = if generated {
+            Floating::for_layer(&self.doc, &mask, duplicate)
+        } else {
+            Floating::new(&self.doc, &mask, duplicate)
+        };
+        match floating {
             Ok(floating) => {
+                self.selection.mask = Some(mask);
+                self.doc.selection = self.selection.mask.clone();
+                self.selection.generated_transform_mask = generated;
                 self.start_floating(ctx, floating);
                 self.status = format!(
                     "Arraste para mover; use as alças para redimensionar ou girar. {} aplica; {} cancela.",
@@ -221,6 +268,10 @@ impl PaintAtlas {
         self.selection.creation.is_some()
     }
     pub(super) fn cancel_transform(&mut self) {
+        if std::mem::take(&mut self.selection.generated_transform_mask) {
+            self.selection.mask = None;
+            self.doc.selection = None;
+        }
         self.selection.floating = None;
         self.selection.textures = None;
         self.selection.drag = None;
@@ -241,8 +292,7 @@ impl PaintAtlas {
             return;
         };
         if floating.unchanged() {
-            self.selection.textures = None;
-            self.selection.drag = None;
+            self.cancel_transform();
             self.status = "Transformação sem alterações.".into();
             return;
         }
@@ -282,7 +332,11 @@ impl PaintAtlas {
             self.doc.layers[target].pixels = pixels;
         }
         self.selected_layers.clear();
-        self.selection.mask = mask;
+        self.selection.mask = if std::mem::take(&mut self.selection.generated_transform_mask) {
+            None
+        } else {
+            mask
+        };
         self.doc.selection = self.selection.mask.clone();
         self.changed();
         self.status = format!(
@@ -437,18 +491,20 @@ impl PaintAtlas {
         if self.preferences.capturing_shortcut() {
             return true;
         }
-        let (pointer, pressed, down, released, proportion, snap, add, subtract) = ctx.input(|i| {
-            (
-                i.pointer.interact_pos(),
-                i.pointer.primary_pressed(),
-                i.pointer.primary_down(),
-                i.pointer.primary_released(),
-                self.settings.shortcuts.held(i, Shortcut::Proportion),
-                self.settings.shortcuts.held(i, Shortcut::RotationSnap),
-                self.settings.shortcuts.held(i, Shortcut::SelectionAdd),
-                self.settings.shortcuts.held(i, Shortcut::SelectionSubtract),
-            )
-        });
+        let (pointer, pressed, down, released, proportion, snap, constrain_move, add, subtract) =
+            ctx.input(|i| {
+                (
+                    i.pointer.interact_pos(),
+                    i.pointer.primary_pressed(),
+                    i.pointer.primary_down(),
+                    i.pointer.primary_released(),
+                    self.settings.shortcuts.held(i, Shortcut::Proportion),
+                    self.settings.shortcuts.held(i, Shortcut::RotationSnap),
+                    self.settings.shortcuts.held(i, Shortcut::ConstrainMove),
+                    self.settings.shortcuts.held(i, Shortcut::SelectionAdd),
+                    self.settings.shortcuts.held(i, Shortcut::SelectionSubtract),
+                )
+            });
         let in_toolbar =
             pointer.is_some_and(|p| self.selection.toolbar.is_some_and(|r| r.contains(p)));
         if let Some(f) = &mut self.selection.floating {
@@ -499,7 +555,14 @@ impl PaintAtlas {
                             + rotation * (local.center() - drag.bounds.center());
                         local.translate(center - local.center())
                     } else {
-                        drag.bounds.translate(delta.round())
+                        drag.bounds.translate(
+                            if constrain_move {
+                                constrained_translation(delta)
+                            } else {
+                                delta
+                            }
+                            .round(),
+                        )
                     };
                     // Prevent unbounded geometry, without clipping the preview to the canvas.
                     if r.is_finite() && r.width() <= 32768.0 && r.height() <= 32768.0 {
@@ -664,7 +727,8 @@ impl PaintAtlas {
         crate::theme::caption(
             ui,
             format!(
-                "Arraste fora das alças para girar. {} encaixa a rotação em 15°. Nas alças, {} alterna a proporção; as laterais permitem esticar.",
+                "Ao mover, {} restringe a direção a 45°. Arraste fora das alças para girar. {} encaixa a rotação em 15°. Nas alças, {} alterna a proporção; as laterais permitem esticar.",
+                self.settings.shortcuts.label(Shortcut::ConstrainMove),
                 self.settings.shortcuts.label(Shortcut::RotationSnap),
                 self.settings.shortcuts.label(Shortcut::Proportion)
             ),
@@ -951,9 +1015,41 @@ impl PaintAtlas {
     }
 }
 
+// Project onto the nearest canvas axis or diagonal, anchored at drag start.
+fn constrained_translation(delta: Vec2) -> Vec2 {
+    let a = delta.abs();
+    let threshold = (std::f32::consts::FRAC_PI_8).tan();
+    if a.y <= a.x * threshold {
+        Vec2::new(delta.x, 0.0)
+    } else if a.x <= a.y * threshold {
+        Vec2::new(0.0, delta.y)
+    } else {
+        let distance = (a.x + a.y) * 0.5;
+        Vec2::new(distance.copysign(delta.x), distance.copysign(delta.y))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn movement_projects_to_nearest_axis_or_diagonal_in_every_quadrant() {
+        for (input, expected) in [
+            ([0.0, 0.0], [0.0, 0.0]),
+            ([20.0, 3.0], [20.0, 0.0]),
+            ([3.0, 20.0], [0.0, 20.0]),
+            ([20.0, 18.0], [19.0, 19.0]),
+        ] {
+            for x in [-1.0, 1.0] {
+                for y in [-1.0, 1.0] {
+                    assert_eq!(
+                        constrained_translation(Vec2::new(input[0] * x, input[1] * y)),
+                        Vec2::new(expected[0] * x, expected[1] * y)
+                    );
+                }
+            }
+        }
+    }
     #[test]
     fn rotated_handles_and_rotation_zone_follow_mirrored_canvas() {
         let doc = Document::new(200, 200, false);

@@ -5,6 +5,10 @@ mod canvas_backdrop;
 mod clipboard_ui;
 #[path = "documents_ui.rs"]
 mod documents_ui;
+#[path = "export_ui.rs"]
+mod export_ui;
+#[path = "fill_reveal.rs"]
+mod fill_reveal;
 #[path = "filter_ui.rs"]
 mod filter_ui;
 #[path = "image_drop_ui.rs"]
@@ -13,6 +17,8 @@ mod image_drop_ui;
 mod image_menu;
 #[path = "layer_menu.rs"]
 mod layer_menu;
+#[path = "picker_ui.rs"]
+mod picker_ui;
 #[path = "selection_ui.rs"]
 mod selection_ui;
 use crate::document::{Brush, Document, History, MAX_SIDE, Tool};
@@ -51,6 +57,7 @@ struct LayerDrag(usize);
 pub struct PaintAtlas {
     image_import: Option<crate::image_drop::Job>,
     image_editor: Option<image_menu::Editor>,
+    export_dialog: Option<export_ui::Export>,
     last_filter: Option<crate::filters::Settings>,
     clipboard: crate::clipboard::SystemClipboard,
     documents: Vec<documents_ui::Tab>,
@@ -62,6 +69,8 @@ pub struct PaintAtlas {
     root_pixels_per_point: f32,
     doc: Document,
     selection: selection_ui::State,
+    picker: picker_ui::State,
+    fill_reveal: fill_reveal::State,
     blend_fallback: Option<egui::TextureHandle>,
     blend_fallback_dirty: bool,
     blend_shader: Option<std::sync::Arc<crate::blend_gpu::Shader>>,
@@ -73,6 +82,7 @@ pub struct PaintAtlas {
     pressure: f32,
     composite: Vec<u8>,
     refresh: bool,
+    groups_prepared: bool,
     dirty: bool,
     path: Option<PathBuf>,
     tool: Tool,
@@ -194,6 +204,7 @@ impl PaintAtlas {
         let mut app = Self {
             image_import: None,
             image_editor: None,
+            export_dialog: None,
             last_filter: None,
             clipboard: Default::default(),
             documents: vec![documents_ui::Tab {
@@ -208,6 +219,8 @@ impl PaintAtlas {
             root_window_origin: Pos2::ZERO,
             root_pixels_per_point: 1.0,
             selection: selection_ui::State::default(),
+            picker: picker_ui::State::default(),
+            fill_reveal: fill_reveal::State::default(),
             blend_fallback: None,
             blend_fallback_dirty: false,
             blend_shader: None,
@@ -223,6 +236,7 @@ impl PaintAtlas {
             pressure: 1.0,
             composite: Vec::new(),
             refresh: true,
+            groups_prepared: false,
             dirty: false,
             path: None,
             tool: Tool::Brush,
@@ -629,6 +643,12 @@ impl PaintAtlas {
                     app.open_adjustment(ctx, crate::image_ops::Adjustment::Invert);
                 }
             }
+            if scene == "export-as" {
+                app.open_export_as();
+            }
+            if scene == "layer-transform" {
+                app.begin_transform(ctx, false);
+            }
             if scene == "image-adjustment" {
                 app.open_adjustment(ctx, crate::image_ops::Adjustment::Curves);
             }
@@ -805,7 +825,9 @@ impl PaintAtlas {
         Ok(())
     }
     fn changed(&mut self) {
+        self.fill_reveal.clear();
         self.doc.rebuild_groups(self.doc.damage);
+        self.groups_prepared = true;
         self.refresh = true;
         self.dirty = true;
     }
@@ -820,6 +842,7 @@ impl PaintAtlas {
         self.doc.layers[self.doc.active].opacity = opacity;
         if self.doc.layers[self.doc.active].parent.is_some() {
             self.doc.rebuild_groups(None);
+            self.groups_prepared = true;
             self.doc.damage = None;
             self.refresh = true;
         }
@@ -857,12 +880,15 @@ impl PaintAtlas {
         }
     }
     fn reset(&mut self, doc: Document, path: Option<PathBuf>, dirty: bool) {
+        self.picker = picker_ui::State::default();
+        self.fill_reveal.clear();
         self.clear_selection();
         self.startup_canvas_required = false;
         self.new_dialog = false;
         self.layer_motion = None;
         self.layer_row_slides.clear();
         self.doc = doc;
+        self.groups_prepared = false;
         self.doc.damage = None;
         self.path = path;
         self.history = History::new();
@@ -1004,6 +1030,7 @@ impl PaintAtlas {
         }
     }
     fn undo(&mut self) {
+        self.fill_reveal.clear();
         self.selected_layers.clear();
         self.layer_motion = None;
         self.layer_row_slides.clear();
@@ -1019,6 +1046,7 @@ impl PaintAtlas {
         }
     }
     fn redo(&mut self) {
+        self.fill_reveal.clear();
         self.selected_layers.clear();
         self.layer_motion = None;
         self.layer_row_slides.clear();
@@ -1092,6 +1120,7 @@ impl PaintAtlas {
                     self.save(true);
                 }
                 Shortcut::Export => self.export(),
+                Shortcut::ExportAs => self.open_export_as(),
                 Shortcut::CloseTab => {
                     if let Some(tab) = self.documents.get(self.active_document) {
                         self.request(Action::CloseTab(tab.id));
@@ -1223,11 +1252,22 @@ impl PaintAtlas {
                             ui,
                             self.settings
                                 .shortcuts
-                                .menu(Shortcut::Export, "Exportar PNG…"),
+                                .menu(Shortcut::Export, "Exportar PNG rápido…"),
                         )
                         .clicked()
                         {
                             self.export();
+                            ui.close();
+                        }
+                        if ui
+                            .button(
+                                self.settings
+                                    .shortcuts
+                                    .menu(Shortcut::ExportAs, "Exportar como…"),
+                            )
+                            .clicked()
+                        {
+                            self.open_export_as();
                             ui.close();
                         }
                     });
@@ -1318,7 +1358,7 @@ impl PaintAtlas {
                         ui.label(self.document_title(self.active_document));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if crate::theme::button(ui, "Exportar PNG").clicked() {
+                        if crate::theme::button(ui, "Exportar PNG rápido").clicked() {
                             self.export();
                         }
                         if crate::theme::button(ui, "Ajuda").clicked() {
@@ -1420,8 +1460,10 @@ impl PaintAtlas {
                     runs.push(d);
                 }
                 // Child edits also invalidate their isolated ancestor composites.
-                self.doc
-                    .rebuild_groups_after(Some(d), Some(self.doc.active));
+                if !self.groups_prepared {
+                    self.doc
+                        .rebuild_groups_after(Some(d), Some(self.doc.active));
+                }
                 for index in 0..self.doc.layers.len() {
                     if self.doc.layers[index]
                         .group
@@ -1481,6 +1523,7 @@ impl PaintAtlas {
                 }
             }
             self.refresh = false;
+            self.groups_prepared = false;
             ctx.request_repaint();
         }
         if self.checker.is_none() {
@@ -1887,15 +1930,7 @@ impl PaintAtlas {
                 let point = to_doc(p);
                 if self.doc.contains(point) {
                     if alt || self.tool == Tool::Picker {
-                        let i = ((point[1] as u32 * self.doc.width + point[0] as u32) * 4) as usize;
-                        self.composite = self.doc.composite();
-                        if self.composite.len() > i + 3 {
-                            self.color = Color32::from_rgb(
-                                self.composite[i],
-                                self.composite[i + 1],
-                                self.composite[i + 2],
-                            );
-                        }
+                        self.picker.begin(&self.doc);
                     } else if self.doc.layers[self.doc.active].group.is_some() {
                         self.status = "Selecione uma camada dentro do grupo para desenhar.".into();
                     } else if !self.doc.layers[self.doc.active].visible {
@@ -1914,8 +1949,7 @@ impl PaintAtlas {
                         }
                         let brush = self.brush();
                         if self.tool == Tool::Fill {
-                            self.doc
-                                .fill(point, brush.color, brush.opacity, self.tolerance);
+                            self.animated_fill(ctx, point, brush.color, brush.opacity);
                         } else {
                             let base = if self.tool.is_shape() {
                                 Some(self.doc.layers[self.doc.active].pixels.clone())
@@ -1939,7 +1973,9 @@ impl PaintAtlas {
                                 distance_to_dab: (brush.size * brush.spacing).max(0.5),
                             });
                         }
-                        self.changed();
+                        if self.tool != Tool::Fill {
+                            self.changed();
+                        }
                     }
                 }
             }
@@ -2036,6 +2072,21 @@ impl PaintAtlas {
                 }
             }
         }
+        if self.screenshot.is_some()
+            && std::env::var("PAINTATLAS_SMOKE_SCENE")
+                .is_ok_and(|scene| scene.starts_with("fill-reveal"))
+            && self.frames == 4
+        {
+            self.tool = Tool::Fill;
+            self.color = Color32::from_rgb(55, 153, 245);
+            self.doc.layers[self.doc.active].alpha_lock = false;
+            if std::env::var("PAINTATLAS_SMOKE_SCENE").as_deref() == Ok("fill-reveal-solid") {
+                self.doc.layers[self.doc.active].pixels.fill(0);
+            }
+            self.checkpoint();
+            self.animated_fill(ctx, [300.0, 250.0], [55, 153, 245, 255], 1.0);
+        }
+        self.fill_reveal.advance(ctx);
         self.sync_layer_textures(ctx);
         let painter = ui.painter().with_clip_rect(bounds);
         self.paint_canvas_document(ui, bounds, view);
@@ -2093,6 +2144,20 @@ impl PaintAtlas {
             }
         }
         self.selection_overlay(ui, view);
+        let (picker_pointer, picker_down) = if self.screenshot.is_some()
+            && std::env::var("PAINTATLAS_SMOKE_SCENE").as_deref() == Ok("eyedropper")
+        {
+            if !self.picker.active {
+                self.picker.begin(&self.doc);
+            }
+            (Some(view.screen([295.0, 225.0])), true)
+        } else {
+            (pointer, down)
+        };
+        if let Some(color) = self.picker.update(ctx, picker_pointer, picker_down, view) {
+            self.color = color;
+        }
+        self.picker.paint(ctx);
     }
     fn paint_brush_cursor(
         &self,
@@ -3222,7 +3287,8 @@ impl PaintAtlas {
             ("Abrir…", 1),
             ("Salvar projeto", 2),
             ("Salvar como…", 3),
-            ("Exportar PNG…", 4),
+            ("Exportar PNG rápido…", 4),
+            ("Exportar como…", 5),
         ] {
             if ui
                 .add_sized(
@@ -3240,7 +3306,8 @@ impl PaintAtlas {
                     3 => {
                         self.save(true);
                     }
-                    _ => self.export(),
+                    4 => self.export(),
+                    _ => self.open_export_as(),
                 }
             }
         }
@@ -3761,6 +3828,7 @@ impl eframe::App for PaintAtlas {
         }
         self.dialogs(ctx);
         self.image_dialog(ctx);
+        self.export_as_ui(ctx);
         self.image_drop_overlay(ctx);
         crate::theme::finish_glass(ctx);
         if self.gesture.is_none() && !self.opacity_edit && self.image_editor.is_none() {
@@ -3798,6 +3866,7 @@ impl eframe::App for PaintAtlas {
                 Ok("stabilizer") => 170,
                 Ok("stabilizer-live") => 140,
                 Ok("layer-fluid-drop") => 34,
+                Ok("fill-reveal" | "fill-reveal-solid") => 14,
                 Ok("glass-canvas-native") => 60,
                 _ => 20,
             };
@@ -5798,5 +5867,99 @@ mod tests {
         app.animate_fit(1.0 / 60.0);
         assert_eq!(app.zoom, 2.0);
         assert_eq!(app.pan, Vec2::ZERO);
+    }
+    #[test]
+    fn ctrl_t_without_selection_transforms_content_bounds_and_cancel_restores_no_selection() {
+        let ctx = egui::Context::default();
+        let mut app = PaintAtlas::from_context(&ctx);
+        app.reset(Document::new(16, 16, false), None, false);
+        app.settings.shortcuts = Default::default();
+        app.doc.layers[0].pixels[(3 * 16 + 2) * 4..][..4].copy_from_slice(&[200, 50, 100, 180]);
+        app.doc.layers[0].pixels[(7 * 16 + 9) * 4..][..4].copy_from_slice(&[20, 120, 200, 255]);
+        let original = app.doc.layers[0].pixels.clone();
+        let trigger = |app: &mut PaintAtlas| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    modifiers: egui::Modifiers::CTRL,
+                    events: vec![egui::Event::Key {
+                        key: egui::Key::T,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::CTRL,
+                    }],
+                    ..Default::default()
+                },
+                |ctx| app.shortcuts(ctx),
+            );
+        };
+        trigger(&mut app);
+        let floating = app.selection.floating.as_ref().unwrap();
+        assert_eq!(
+            floating.bounds,
+            Rect::from_min_max(Pos2::new(2.0, 3.0), Pos2::new(10.0, 8.0))
+        );
+        app.cancel_transform();
+        assert!(app.selection.mask.is_none() && app.doc.selection.is_none());
+        assert_eq!(app.doc.layers[0].pixels, original);
+        trigger(&mut app);
+        app.selection.floating.as_mut().unwrap().bounds = app
+            .selection
+            .floating
+            .as_ref()
+            .unwrap()
+            .bounds
+            .translate(Vec2::new(1.0, 0.0));
+        app.apply_transform();
+        app.history.commit(&app.doc);
+        assert!(app.selection.mask.is_none());
+        assert_eq!(
+            &app.doc.layers[0].pixels[(3 * 16 + 3) * 4..][..4],
+            &[200, 50, 100, 180]
+        );
+        app.undo();
+        assert_eq!(app.doc.layers[0].pixels, original);
+        app.redo();
+        assert_ne!(app.doc.layers[0].pixels, original);
+    }
+    #[test]
+    fn free_transform_keeps_explicit_selection_and_rejects_empty_layers() {
+        let ctx = egui::Context::default();
+        let mut app = PaintAtlas::from_context(&ctx);
+        app.reset(Document::new(16, 16, false), None, false);
+        app.begin_transform(&ctx, false);
+        assert!(app.selection.floating.is_none() && app.selection.mask.is_none());
+        app.doc.layers[0].pixels[(3 * 16 + 3) * 4 + 3] = 255;
+        let mask = std::sync::Arc::new(
+            crate::selection::Mask::rectangle(
+                16,
+                16,
+                Rect::from_min_size(Pos2::new(1.0, 1.0), Vec2::splat(5.0)),
+            )
+            .unwrap(),
+        );
+        app.selection.mask = Some(mask.clone());
+        app.begin_transform(&ctx, false);
+        assert_eq!(app.selection.floating.as_ref().unwrap().bounds, mask.bounds);
+        app.cancel_transform();
+        assert!(std::sync::Arc::ptr_eq(
+            app.selection.mask.as_ref().unwrap(),
+            &mask
+        ));
+    }
+    #[test]
+    fn whole_layer_transform_keeps_transparency_lock_and_unchanged_apply_has_no_history_step() {
+        let ctx = egui::Context::default();
+        let mut app = PaintAtlas::from_context(&ctx);
+        app.reset(Document::new(8, 8, false), None, false);
+        app.doc.layers[0].pixels[(2 * 8 + 2) * 4 + 3] = 255;
+        app.doc.layers[0].alpha_lock = true;
+        app.begin_transform(&ctx, false);
+        assert!(app.selection.floating.is_some());
+        app.apply_transform();
+        app.history.commit(&app.doc);
+        assert!(app.selection.mask.is_none() && app.doc.selection.is_none());
+        assert!(app.doc.layers[0].alpha_lock);
+        assert_eq!(app.history.counts(), (0, 0));
     }
 }

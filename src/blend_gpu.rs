@@ -18,11 +18,18 @@ pub struct Floating {
     pub flip: [bool; 2],
 }
 #[derive(Clone, Copy)]
+pub struct Reveal {
+    pub before: egui::TextureId,
+    pub point: [f32; 2],
+    pub radius: f32,
+}
+#[derive(Clone, Copy)]
 pub struct Layer {
     pub texture: egui::TextureId,
     pub opacity: f32,
     pub mode: BlendMode,
     pub floating: Option<Floating>,
+    pub reveal: Option<Reveal>,
 }
 struct Targets {
     size: [i32; 2],
@@ -47,7 +54,9 @@ const FRAGMENT: &str = r#"
 in vec2 v_uv;
 out vec4 color;
 uniform sampler2D u_previous, u_layer, u_cut;
-uniform int u_final, u_mode, u_floating;
+uniform int u_final, u_mode, u_floating, u_reveal;
+uniform vec2 u_reveal_point;
+uniform float u_reveal_radius;
 uniform vec2 u_doc, u_center, u_origin, u_extent, u_flip;
 uniform vec4 u_bounds;
 uniform float u_zoom, u_view_angle, u_mirror, u_opacity, u_angle;
@@ -110,6 +119,12 @@ void main() {
             vec4 cut=texture(u_cut,mix(uv,1.0-uv,u_flip));
             source=cut+source*(1.0-cut.a);
         }
+    }
+    if(u_reveal!=0 && all(greaterThanEqual(d,vec2(0.0))) && all(lessThan(d,u_doc))) {
+        vec4 before=texture(u_cut,d/u_doc);
+        float distance_to_click=distance(d,u_reveal_point);
+        float amount=u_reveal_radius<=0.0?0.0:1.0-smoothstep(max(0.0,u_reveal_radius-1.0),u_reveal_radius,distance_to_click);
+        source=mix(before,source,amount);
     }
     source*=u_opacity;
     if(source.a<=0.0) { color=base; return; }
@@ -304,6 +319,20 @@ impl Shader {
                         f32::from(f.flip[0]),
                         f32::from(f.flip[1]),
                     );
+                }
+                gl.uniform_1_i32(
+                    uniform("u_reveal").as_ref(),
+                    i32::from(layer.reveal.is_some()),
+                );
+                if let Some(reveal) = layer.reveal {
+                    gl.active_texture(glow::TEXTURE2);
+                    gl.bind_texture(glow::TEXTURE_2D, painter.texture(reveal.before));
+                    gl.uniform_2_f32(
+                        uniform("u_reveal_point").as_ref(),
+                        reveal.point[0],
+                        reveal.point[1],
+                    );
+                    gl.uniform_1_f32(uniform("u_reveal_radius").as_ref(), reveal.radius);
                 }
                 gl.draw_arrays(glow::TRIANGLE_STRIP, 0, 4);
                 current = next;

@@ -179,11 +179,22 @@ pub struct Floating {
 }
 impl Floating {
     pub fn new(doc: &Document, mask: &Mask, duplicate: bool) -> Result<Self, String> {
+        Self::from_mask(doc, mask, duplicate, false)
+    }
+    pub fn for_layer(doc: &Document, mask: &Mask, duplicate: bool) -> Result<Self, String> {
+        Self::from_mask(doc, mask, duplicate, true)
+    }
+    fn from_mask(
+        doc: &Document,
+        mask: &Mask,
+        duplicate: bool,
+        whole_layer: bool,
+    ) -> Result<Self, String> {
         let layer = &doc.layers[doc.active];
         if !layer.visible {
             return Err("Ative a visibilidade da camada para transformar.".into());
         }
-        if layer.alpha_lock {
+        if layer.alpha_lock && !whole_layer {
             return Err("Desative Bloquear transparência para transformar o recorte.".into());
         }
         let r = mask.bounds;

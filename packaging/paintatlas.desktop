@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PaintAtlas
+Comment=Raster drawing studio with pressure-sensitive brushes and layers
+Exec=paintatlas
+Icon=paintatlas
+Terminal=false
+Categories=Graphics;2DGraphics;RasterGraphics;
+StartupWMClass=paintatlas

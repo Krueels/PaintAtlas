@@ -2,7 +2,11 @@
 
 A raster drawing studio for Linux, built in **Rust**, with a Portuguese-language interface. A personal project inspired by Clip Studio Paint's illustration workflow: pressure-sensitive brushes, layers, selections, and transforms, with dockable panels and translucent glass styling.
 
-![PaintAtlas startup screen](docs/splash.png)
+[Source code on GitHub](https://github.com/Krueels/PaintAtlas)
+
+![PaintAtlas startup screen with original artwork by Krueels](docs/splash.png)
+
+Startup screen featuring original artwork by [Krueels](https://github.com/Krueels).
 
 ## Build and run
 
@@ -30,13 +34,38 @@ For an optimized build:
 
 Keep `default_brushes/` next to the executable when distributing a local copy with the brush tip pack. The splash background and Inter font are embedded in the executable.
 
+## AppImage (Linux x86_64)
+
+Build an optimized portable package with:
+
+```bash
+./gerar-appimage.sh
+```
+
+The executable package, SHA256 checksum, and build information are written to `dist/`. The script downloads and caches [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy) under `target/appimage-tools/`; it does not install system-wide tools. Use `--skip-build` to package an existing release executable. The package includes the default brush pack, Inter license, curl for browser image downloads, and the libraries loaded dynamically for X11, Wayland, and tablet input. User settings remain in the usual user configuration directory.
+
+Launch the result directly, or without FUSE using:
+
+```bash
+./dist/PaintAtlas-0.1.0-x86_64.AppImage --appimage-extract-and-run
+```
+
+This local build uses the build machine's glibc baseline and the destination's graphics drivers. It is intended for the current CachyOS installation and compatible systems; compatibility with older distributions is not guaranteed. For broad distribution, build on an older supported Linux base. Packaging tools and generated packages are ignored by Git. The app's built-in Inter fallback is included; a locally installed SF Pro font is not copied into the package.
+
 ## Start drawing
 
 The app opens maximized with a splash screen and a centered canvas creation menu. Choose the width, height, DPI, and paper color, open a project or image, or press **Ctrl+V** to create a canvas from a copied image at its original size, preserving transparency. The **Paste image** button does the same. Custom paste shortcuts are also respected. UI labels in this README are translated for reference; the app itself currently uses Portuguese.
 
 Canvas creation settings are saved for future canvases. New canvases start with black as the drawing color. Multiple documents can be opened in tabs; closing the last one returns to the splash screen.
 
-Save as **`.patlas`** to preserve layers. Exporting PNG produces a flattened image and does not replace the editable project. Hide the paper layer to export with transparency.
+Save as **`.patlas`** to preserve layers, groups, and editable group effects. Exporting an image creates a flattened copy and does not replace the project.
+
+### Export images
+
+- **File → Export PNG quickly** (**Ctrl+E**): save the visible composition directly as PNG, including transparency and document DPI. Hide the paper layer when you want a transparent background.
+- **File → Export as** (**Ctrl+Alt+Shift+E**): open a movable, resizable window with a checkerboard preview and the encoded file size. Choose PNG, JPEG, or lossless WebP; adjust JPEG quality, transparency, background color, scale, dimensions, aspect locking, and resampling. PNG and JPEG can include print DPI metadata.
+
+Export settings affect only the exported copy. Encoding runs in the background, and the loading indicator has reserved space so controls stay in place. The JPEG preview shows the actual compression result. ICC profile conversion and embedding are not supported.
 
 ## Features
 
@@ -50,6 +79,8 @@ The navigation panel's **Fit** command smoothly animates both zoom and centering
 - Brush size palette from **1 to 1000 px**, with buttons and circular previews.
 - Brush outline, circle, or dot cursor. Pressure-based resizing is optional for the circle cursor and disabled by default.
 - Contiguous fill with tolerance, eyedropper, lines, rectangles, and ellipses.
+- Filling smoothly reveals the new color in an expanding circle from the clicked point, limited to the actual filled region. OpenGL animates the reveal before layer opacity and blending, including grouped layers. The document commits one undo action; no animation is baked into pixels. Reduced-motion settings show the final result immediately.
+- Hold and drag the eyedropper (or Alt with a drawing tool) to sample continuously through an animated pixel magnifier, with a central pixel marker, exact hexadecimal color, and softly feathered edges. The magnifier respects reduced-motion settings.
 - Rectangular and triangular HSV color selectors that adapt to the panel size.
 
 Stabilization ranges from 0% to 100%. Higher values introduce an intentional delay to smooth the stroke; a guide between the pen and brush tip shows the effect. Pressure dynamics let you adjust the pressure curve and minimum size or disable thickness variation.
@@ -68,7 +99,9 @@ The selector above layer opacity offers 18 modes: Normal, Multiply, Screen, Over
 
 Rectangular and lasso selections support adding, subtracting, and inverting areas. Brushes, erasers, shapes, and fills respect the selection. A contextual toolbar below the selection provides transform, duplicate selection content, invert, delete, and deselect actions.
 
-During a transform, drag inside to move, drag handles to resize, and drag outside the corners to rotate. Corner handles preserve proportions by default; Shift toggles this behavior and also enables rotation snapping. Horizontal/vertical flipping and reset controls are available. **Enter** applies a single history action; **Esc** cancels. The preview avoids repeatedly resampling the pixels.
+**Ctrl+T** transforms the current selection, or the active layer's content bounds when no selection exists. Transforming a whole layer preserves its transparency-lock setting. Canceling restores the previous selection state and the original pixels.
+
+During a transform, drag inside to move, drag handles to resize, and drag outside the corners to rotate. Corner handles preserve proportions by default; Shift toggles this behavior and also enables rotation snapping. While moving, hold Shift to constrain the drag to horizontal, vertical, or 45° diagonal directions; release it to move freely. These modifiers can be reassigned in Settings. Horizontal/vertical flipping and reset controls are available. **Enter** applies a single history action; **Esc** cancels. The preview avoids repeatedly resampling the pixels.
 
 Selections are temporary. Permanent layer masks are not available yet.
 
@@ -127,7 +160,7 @@ Open **Filter → Filter Gallery** to browse **73 filters in 14 categories**, wi
 
 The catalog includes blur and focus effects, noise reduction, distortion, pixelation, procedural clouds/fibers, sharpening, stylization, artistic/sketch effects, textures, de-interlacing, custom convolution, high pass, morphology, and offset. Displacement supports importing an image map. Approximate effects are identified in the controls; these are independent PaintAtlas implementations, not copies of Adobe algorithms.
 
-Filters affect the active visible layer and respect selections. Spatial effects can move or soften alpha, while procedural generators can fill an empty layer. Layer alpha lock is always respected, and applicable filters also offer a Preserve Transparency option. Apply creates one undo action; Cancel restores the original pixels and dirty state. Processing and thumbnail generation run in background tasks.
+Filters affect the active visible layer and respect selections. Spatial effects can move or soften alpha, while procedural generators can fill an empty layer. Layer alpha lock is always respected, and applicable filters also offer a Preserve Transparency option. Apply creates one undo action; Cancel restores the original pixels and dirty state. Processing and thumbnail generation run in background tasks. Gaussian blur uses parallel, cache-friendly passes for large images and skips transparent margins around sparse drawings; its three-box Gaussian approximation remains the same.
 
 Use **Ctrl+Alt+F** to repeat the last applied filter with its settings. Filter commands and the gallery can be remapped under **Settings → Shortcuts → Filters**. Last-filter settings persist for the current app session.
 
@@ -156,13 +189,14 @@ All shortcuts can be changed under **Settings → Shortcuts**, including alterna
 | Fill / eyedropper | G / I |
 | Line / rectangle / ellipse | L / R / O |
 | Rectangular selection / lasso | S / A |
-| Transform selection | Ctrl+T |
+| Transform selection or active layer | Ctrl+T |
 | Select all / deselect | Ctrl+A / Ctrl+D |
 | Apply / cancel transform | Enter / Esc |
 | Delete selection content | Delete |
 | Move object during transform | Arrow keys; Shift+arrows for 10 px |
+| Constrain a transform drag to axes or 45° diagonals | Hold Shift while dragging |
 | Hand / temporarily pan | H / Space+drag |
-| Temporary eyedropper | Alt+click |
+| Temporary eyedropper | Alt+click; hold and drag to sample continuously |
 | Decrease / increase brush size | [ / ] |
 | Brush sizes | F6 |
 | Zoom | Mouse wheel, Ctrl++ / Ctrl+- |
@@ -172,7 +206,8 @@ All shortcuts can be changed under **Settings → Shortcuts**, including alterna
 | Copy / copy merged / paste | Ctrl+C / Ctrl+Shift+C / Ctrl+V |
 | Undo / redo | Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y |
 | New / open / save | Ctrl+N / Ctrl+O / Ctrl+S |
-| Close canvas / export PNG | Ctrl+W / Ctrl+E |
+| Close canvas / quick PNG export | Ctrl+W / Ctrl+E |
+| Export as | Ctrl+Alt+Shift+E |
 | Levels / Curves / Hue-Saturation | Ctrl+L / Ctrl+M / Ctrl+U |
 | Color Balance / Invert / Desaturate | Ctrl+B / Ctrl+I / Ctrl+Shift+U |
 | Image Size / Canvas Size | Ctrl+Alt+I / Ctrl+Alt+C |
@@ -213,7 +248,9 @@ Brushes rasterize on the CPU; previews and blend modes use OpenGL. During freeha
 | `src/brush_tip.rs`, `src/presets.rs`, `src/brush_sizes.rs` | Tips, presets, and sizes |
 | `src/documents_ui.rs`, `src/workspace.rs` | Documents and docking |
 | `src/selection*.rs` | Masks, transforms, and previews |
-| `src/blend.rs`, `src/blend_gpu.rs` | CPU/GPU blend modes |
+| `src/blend.rs`, `src/blend_gpu.rs` | CPU/GPU blend modes and radial fill composition |
+| `src/fill_reveal.rs`, `src/picker_ui.rs` | Expanding fill reveal and eyedropper magnifier |
+| `src/export_ui.rs` | Export options, background encoding, and file preview |
 | `src/clipboard*.rs`, `src/image_drop*.rs` | Clipboard and drag-and-drop import |
 | `src/image_menu.rs`, `src/image_ops.rs` | Image adjustments, geometry, previews, and background jobs |
 | `src/filter_ui.rs`, `src/filters.rs` | Filter catalog, gallery, and raster processing |
@@ -222,6 +259,7 @@ Brushes rasterize on the CPU; previews and blend modes use OpenGL. During freeha
 | `src/theme.rs`, `src/glass_gpu.rs`, `src/canvas_backdrop.rs` | Appearance, glass, and canvas backdrop |
 | `assets/`, `default_brushes/` | Visual assets and brush tip pack |
 | `vendor/` | Dependencies with local modifications |
+| `gerar-appimage.sh`, `packaging/` | Local AppImage build and launcher assets |
 
 **Every future feature with a shortcut must register its action in `src/shortcuts.rs` and use the configurable shortcut system.** This requirement is also highlighted in the source code.
 
@@ -266,9 +304,19 @@ git add .
 git commit -m "Update PaintAtlas"
 ```
 
-No remote repository is configured. To connect to a repository you have created:
+The project is hosted at [Krueels/PaintAtlas](https://github.com/Krueels/PaintAtlas). In an existing checkout with `origin` configured:
 
 ```bash
-git remote add origin REPOSITORY_URL
+git remote -v
 git push -u origin main
 ```
+
+For a fresh checkout:
+
+```bash
+git clone https://github.com/Krueels/PaintAtlas.git
+cd PaintAtlas
+./compilar.sh
+```
+
+GitHub pushes over HTTPS require a personal access token or an authenticated credential helper; an account password cannot be used for Git authentication. An SSH remote is also supported if an SSH key is configured for your GitHub account.

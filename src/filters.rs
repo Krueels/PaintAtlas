@@ -522,33 +522,133 @@ fn box_pass(
     vertical: bool,
     cancel: &AtomicBool,
 ) -> Result<(), String> {
-    let (lines, len) = if vertical { (w, h) } else { (h, w) };
-    let index = |line: usize, p: i32| {
-        let p = p.clamp(0, len as i32 - 1) as usize;
-        if vertical { p * w + line } else { line * w + p }
+    let workers = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(4)
+        .min(h);
+    if workers <= 1 || w * h < 256 * 256 {
+        return box_pass_rows(src, dst, [w, h, 0], r, vertical, cancel);
+    }
+    let rows = h.div_ceil(workers);
+    std::thread::scope(|scope| {
+        let mut tasks = Vec::new();
+        for (index, output) in dst.chunks_mut(rows * w).enumerate() {
+            tasks.push(scope.spawn(move || {
+                box_pass_rows(src, output, [w, h, index * rows], r, vertical, cancel)
+            }));
+        }
+        for task in tasks {
+            task.join()
+                .map_err(|_| "Falha no processamento paralelo do desfoque.".to_string())??;
+        }
+        Ok(())
+    })
+}
+fn box_pass_rows(
+    src: &[[u16; 4]],
+    dst: &mut [[u16; 4]],
+    dimensions: [usize; 3],
+    r: usize,
+    vertical: bool,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    let [w, h, first_row] = dimensions;
+    let count = (r * 2 + 1) as u32;
+    // Exact invariant division using a reciprocal and one remainder correction.
+    // A channel sum fits in u32 even at the maximum supported radius.
+    let reciprocal = (1_u64 << 32) / count as u64;
+    let normalize = |sum: u32| {
+        let value = sum + count / 2;
+        let estimate = ((value as u64 * reciprocal) >> 32) as u32;
+        (estimate + u32::from(value - estimate * count >= count)) as u16
     };
-    let count = (r * 2 + 1) as u64;
-    for line in 0..lines {
-        check(cancel)?;
-        let mut sum = [0u64; 4];
-        for p in -(r as i32)..=r as i32 {
-            for c in 0..4 {
-                sum[c] += src[index(line, p)][c] as u64;
+    if vertical {
+        // Keep one running sum per column, but visit pixels row by row. Walking
+        // whole columns on 3000px images caused cache misses on every read/write.
+        let mut sums = vec![[0_u32; 4]; w];
+        for offset in -(r as i32)..=r as i32 {
+            check(cancel)?;
+            let y = (first_row as i32 + offset).clamp(0, h as i32 - 1) as usize;
+            for (sum, pixel) in sums.iter_mut().zip(&src[y * w..][..w]) {
+                for c in 0..4 {
+                    sum[c] += pixel[c] as u32;
+                }
             }
         }
-        for p in 0..len {
-            dst[index(line, p as i32)] =
-                std::array::from_fn(|c| ((sum[c] + count / 2) / count) as u16);
-            if p + 1 < len {
-                let old = src[index(line, p as i32 - r as i32)];
-                let new = src[index(line, p as i32 + r as i32 + 1)];
+        for y in first_row..first_row + dst.len() / w {
+            check(cancel)?;
+            let output = &mut dst[(y - first_row) * w..][..w];
+            let old = &src[y.saturating_sub(r) * w..][..w];
+            let new = &src[(y + r + 1).min(h - 1) * w..][..w];
+            for (((dst, sum), old), new) in output.iter_mut().zip(&mut sums).zip(old).zip(new) {
+                *dst = sum.map(normalize);
                 for c in 0..4 {
-                    sum[c] = sum[c] - old[c] as u64 + new[c] as u64;
+                    sum[c] = sum[c] - old[c] as u32 + new[c] as u32;
+                }
+            }
+        }
+    } else {
+        let input = &src[first_row * w..][..dst.len()];
+        for (input, output) in input.chunks_exact(w).zip(dst.chunks_exact_mut(w)) {
+            check(cancel)?;
+            let mut sum = input[0].map(|v| v as u32 * (r as u32 + 1));
+            for x in 1..=r {
+                for c in 0..4 {
+                    sum[c] += input[x.min(w - 1)][c] as u32;
+                }
+            }
+            for (x, dst) in output.iter_mut().enumerate() {
+                *dst = sum.map(normalize);
+                let old = input[x.saturating_sub(r)];
+                let new = input[(x + r + 1).min(w - 1)];
+                for c in 0..4 {
+                    sum[c] = sum[c] - old[c] as u32 + new[c] as u32;
                 }
             }
         }
     }
+
     Ok(())
+}
+fn map_pixels<S: Sync, D: Send>(
+    source: &[S],
+    destination: &mut [D],
+    cancel: &AtomicBool,
+    map: impl Fn(&S) -> D + Sync,
+) -> Result<(), String> {
+    let workers = std::thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(4);
+    if workers <= 1 || source.len() < 256 * 256 {
+        for (i, (source, destination)) in source.iter().zip(destination).enumerate() {
+            if i % 4096 == 0 {
+                check(cancel)?;
+            }
+            *destination = map(source);
+        }
+        return Ok(());
+    }
+    let chunk = source.len().div_ceil(workers);
+    std::thread::scope(|scope| {
+        let mut tasks = Vec::new();
+        let map = &map;
+        for (source, destination) in source.chunks(chunk).zip(destination.chunks_mut(chunk)) {
+            tasks.push(scope.spawn(move || {
+                for (i, (source, destination)) in source.iter().zip(destination).enumerate() {
+                    if i % 4096 == 0 {
+                        check(cancel)?;
+                    }
+                    *destination = map(source);
+                }
+                Ok::<_, String>(())
+            }));
+        }
+        for task in tasks {
+            task.join()
+                .map_err(|_| "Falha na conversão do desfoque.".to_string())??;
+        }
+        Ok(())
+    })
 }
 fn blurred(
     source: &[u8],
@@ -567,37 +667,92 @@ fn blurred(
         radius.round().max(1.0) as usize
     }
     .min(128);
-    let mut a: Vec<[u16; 4]> = source
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|p| {
-            [
-                ((p[0] as u32 * p[3] as u32 * 257 + 127) / 255) as u16,
-                ((p[1] as u32 * p[3] as u32 * 257 + 127) / 255) as u16,
-                ((p[2] as u32 * p[3] as u32 * 257 + 127) / 255) as u16,
-                p[3] as u16 * 257,
-            ]
-        })
-        .collect();
+    // Blank margins do not need six full-canvas passes. Include the complete
+    // kernel support so cropping remains pixel-identical even at image edges.
+    let mut bounds = [w, h, 0, 0];
+    for (y, row) in source.chunks_exact(w * 4).enumerate() {
+        check(cancel)?;
+        let pixels = row.as_chunks::<4>().0;
+        if let Some(left) = pixels.iter().position(|p| p[3] != 0) {
+            let right = pixels.iter().rposition(|p| p[3] != 0).unwrap() + 1;
+            bounds = [
+                bounds[0].min(left),
+                bounds[1].min(y),
+                bounds[2].max(right),
+                bounds[3].max(y + 1),
+            ];
+        }
+    }
+    if bounds[2] == 0 {
+        return Ok(vec![0; source.len()]);
+    }
+    let margin = r * if gaussian { 3 } else { 1 };
+    bounds = [
+        bounds[0].saturating_sub(margin),
+        bounds[1].saturating_sub(margin),
+        (bounds[2] + margin).min(w),
+        (bounds[3] + margin).min(h),
+    ];
+    let (cw, ch) = (bounds[2] - bounds[0], bounds[3] - bounds[1]);
+    if cw * ch < w * h / 2 {
+        let mut crop = Vec::with_capacity(cw * ch * 4);
+        for y in bounds[1]..bounds[3] {
+            crop.extend_from_slice(&source[(y * w + bounds[0]) * 4..(y * w + bounds[2]) * 4]);
+        }
+        let filtered = blurred_full(&crop, cw, ch, r, gaussian, cancel)?;
+        let mut out = vec![0; source.len()];
+        for y in 0..ch {
+            out[((bounds[1] + y) * w + bounds[0]) * 4..((bounds[1] + y) * w + bounds[2]) * 4]
+                .copy_from_slice(&filtered[y * cw * 4..(y + 1) * cw * 4]);
+        }
+        return Ok(out);
+    }
+    blurred_full(source, w, h, r, gaussian, cancel)
+}
+fn blurred_full(
+    source: &[u8],
+    w: usize,
+    h: usize,
+    r: usize,
+    gaussian: bool,
+    cancel: &AtomicBool,
+) -> Result<Vec<u8>, String> {
+    let mut a = vec![[0; 4]; source.len() / 4];
+    map_pixels(source.as_chunks::<4>().0, &mut a, cancel, |p| {
+        [
+            ((p[0] as u32 * p[3] as u32 * 257 + 127) / 255) as u16,
+            ((p[1] as u32 * p[3] as u32 * 257 + 127) / 255) as u16,
+            ((p[2] as u32 * p[3] as u32 * 257 + 127) / 255) as u16,
+            p[3] as u16 * 257,
+        ]
+    })?;
     let mut b = vec![[0; 4]; a.len()];
     for _ in 0..if gaussian { 3 } else { 1 } {
         box_pass(&a, &mut b, w, h, r, false, cancel)?;
         box_pass(&b, &mut a, w, h, r, true, cancel)?;
     }
-    let mut out = Vec::with_capacity(source.len());
-    for p in a {
+    let mut out = vec![0; source.len()];
+    map_pixels(&a, out.as_chunks_mut::<4>().0, cancel, |p| {
         if p[3] == 0 {
-            out.extend([0; 4]);
+            [0; 4]
+        } else if p[3] == 65535 {
+            // Opaque images need no unpremultiplication or floating point rounding.
+            [
+                ((p[0] as u32 + 128) / 257) as u8,
+                ((p[1] as u32 + 128) / 257) as u8,
+                ((p[2] as u32 + 128) / 257) as u8,
+                255,
+            ]
         } else {
-            out.extend([
+            [
                 (p[0] as f32 * 255.0 / p[3] as f32).round() as u8,
                 (p[1] as f32 * 255.0 / p[3] as f32).round() as u8,
                 (p[2] as f32 * 255.0 / p[3] as f32).round() as u8,
                 ((p[3] as u32 + 128) / 257) as u8,
-            ]);
+            ]
         }
-    }
+    })?;
+
     Ok(out)
 }
 fn median(
@@ -890,6 +1045,9 @@ fn filtered(
     } else {
         None
     };
+    if matches!(kind, Blur | BlurMore | BoxBlur | GaussianBlur) {
+        return Ok(prepared.unwrap());
+    }
     let average = if kind == Average {
         average_samples(
             source
@@ -1531,6 +1689,28 @@ pub fn apply(
     }
     let mut result = filtered(source, mask, &settings, cancel)?;
     let preserve = settings.alpha_lock || settings.preserve_alpha || !settings.kind.changes_alpha();
+    if mask.is_none() && settings.mix >= 100.0 {
+        if preserve {
+            for (i, (dst, src)) in result
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(source.as_chunks::<4>().0)
+                .enumerate()
+            {
+                if i % 4096 == 0 {
+                    check(cancel)?;
+                }
+                if src[3] == 0 {
+                    *dst = *src;
+                } else {
+                    dst[3] = src[3];
+                }
+            }
+        }
+        check(cancel)?;
+        return Ok(result);
+    }
     for (i, (dst, src)) in result
         .as_chunks_mut::<4>()
         .0
@@ -1828,6 +2008,115 @@ mod tests {
 mod parameter_tests {
     use super::*;
     #[test]
+    fn cropped_blur_matches_full_canvas_for_sparse_content_and_clamped_edges() {
+        for origin in [(0, 0), (40, 30), (92, 72)] {
+            let (w, h) = (101, 83);
+            let mut source = vec![0; w * h * 4];
+            for y in origin.1..origin.1 + 5 {
+                for x in origin.0..origin.0 + 7 {
+                    source[(y * w + x) * 4..][..4].copy_from_slice(&[
+                        (x * 2) as u8,
+                        (y * 3) as u8,
+                        100,
+                        170,
+                    ]);
+                }
+            }
+            for r in [1, 4] {
+                for gaussian in [false, true] {
+                    let result =
+                        blurred(&source, w, h, r as f32, gaussian, &AtomicBool::new(false))
+                            .unwrap();
+                    let full =
+                        blurred_full(&source, w, h, r, gaussian, &AtomicBool::new(false)).unwrap();
+                    assert_eq!(
+                        result, full,
+                        "origin {origin:?} radius {r} gaussian {gaussian}"
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn parallel_box_pass_matches_single_worker() {
+        let (w, h) = (513, 513);
+        let source: Vec<_> = (0..w * h)
+            .map(|i| [(i % 65536) as u16, 65535, 70, ((i * 31) % 65536) as u16])
+            .collect();
+        for vertical in [false, true] {
+            let mut reference = vec![[0; 4]; source.len()];
+            let mut parallel = reference.clone();
+            box_pass_rows(
+                &source,
+                &mut reference,
+                [w, h, 0],
+                24,
+                vertical,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            box_pass(
+                &source,
+                &mut parallel,
+                w,
+                h,
+                24,
+                vertical,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            assert_eq!(parallel, reference);
+        }
+    }
+    #[test]
+    fn optimized_box_pass_matches_reference_at_edges_and_all_channel_ranges() {
+        let cancel = AtomicBool::new(false);
+        for (w, h) in [(1, 1), (1, 7), (9, 1), (17, 13)] {
+            let src: Vec<[u16; 4]> = (0..w * h)
+                .map(|i| {
+                    [
+                        ((i * 29137) % 65536) as u16,
+                        65535,
+                        (i % 2 * 65535) as u16,
+                        (i * 37) as u16,
+                    ]
+                })
+                .collect();
+            for r in [0, 1, 4, 24, 128] {
+                for vertical in [false, true] {
+                    let mut output = vec![[0; 4]; src.len()];
+                    box_pass(&src, &mut output, w, h, r, vertical, &cancel).unwrap();
+                    for y in 0..h {
+                        for x in 0..w {
+                            let mut sum = [0_u64; 4];
+                            for d in -(r as i32)..=r as i32 {
+                                let sx = if vertical {
+                                    x
+                                } else {
+                                    (x as i32 + d).clamp(0, w as i32 - 1) as usize
+                                };
+                                let sy = if vertical {
+                                    (y as i32 + d).clamp(0, h as i32 - 1) as usize
+                                } else {
+                                    y
+                                };
+                                for c in 0..4 {
+                                    sum[c] += src[sy * w + sx][c] as u64;
+                                }
+                            }
+                            let count = (r * 2 + 1) as u64;
+                            assert_eq!(
+                                output[y * w + x],
+                                sum.map(|v| ((v + count / 2) / count) as u16),
+                                "{w}x{h} radius {r} vertical {vertical}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[test]
     fn visible_gap_and_monochrome_controls_change_the_effect() {
         let source: Vec<u8> = (0..24 * 16)
             .flat_map(|i| {
@@ -1860,5 +2149,19 @@ mod parameter_tests {
         settings.p[1] = 1.0;
         let color = apply(&source, None, &settings, &AtomicBool::new(false)).unwrap();
         assert_ne!(mono, color);
+    }
+    #[test]
+    #[ignore = "manual 3000px Gaussian processing benchmark"]
+    fn gaussian_processing_benchmark() {
+        let source: Vec<u8> = (0..9_000_000)
+            .flat_map(|i| [(i % 251) as u8, (i % 239) as u8, 80, (i % 255) as u8])
+            .collect();
+        let mut settings = Settings::new(Kind::GaussianBlur, 3000, 3000);
+        settings.p[0] = 24.0;
+        let start = std::time::Instant::now();
+        let result = apply(&source, None, &settings, &AtomicBool::new(false)).unwrap();
+        eprintln!("Gaussian 3000x3000 radius 24: {:?}", start.elapsed());
+        assert_eq!(result.len(), source.len());
+        std::hint::black_box(result);
     }
 }

@@ -22,11 +22,12 @@ impl PaintAtlas {
                 Color32::WHITE,
             )));
         } else if let Some(shader) = &self.blend_shader
-            && self
-                .doc
-                .layers
-                .iter()
-                .any(|l| l.visible && l.blend_mode != crate::blend::BlendMode::Normal)
+            && (self.fill_reveal.active()
+                || self
+                    .doc
+                    .layers
+                    .iter()
+                    .any(|l| l.visible && l.blend_mode != crate::blend::BlendMode::Normal))
         {
             let mut layers = Vec::new();
             let floating = self
@@ -55,11 +56,13 @@ impl PaintAtlas {
                         opacity: 1.0,
                         mode: crate::blend::BlendMode::Normal,
                         floating: Some(floating_input(f, textures)),
+                        reveal: None,
                     });
                 }
                 if layer.visible && layer.parent.is_none() {
                     layers.push(crate::blend_gpu::Layer {
                         texture: texture.id(),
+                        reveal: self.fill_reveal.preview(index),
                         opacity: layer.opacity,
                         mode: layer.blend_mode,
                         floating: floating
@@ -77,6 +80,7 @@ impl PaintAtlas {
                     opacity: 1.0,
                     mode: crate::blend::BlendMode::Normal,
                     floating: Some(floating_input(f, textures)),
+                    reveal: None,
                 });
             }
             shapes.push(shader.callback(clip, view, layers).into());

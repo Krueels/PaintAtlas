@@ -31,7 +31,8 @@ actions! {
     Open, "Arquivo", "Abrir projeto ou imagem", 1, false, ["Ctrl+O"];
     Save, "Arquivo", "Salvar projeto", 1, false, ["Ctrl+S"];
     SaveAs, "Arquivo", "Salvar projeto como", 1, false, [];
-    Export, "Arquivo", "Exportar PNG", 1, false, ["Ctrl+E"];
+    ExportAs, "Arquivo", "Exportar como", 1, false, ["Ctrl+Alt+Shift+E"];
+    Export, "Arquivo", "Exportar PNG rápido", 1, false, ["Ctrl+E"];
     CloseTab, "Arquivo", "Fechar canvas atual", 1, false, ["Ctrl+W"];
     CloseAll, "Arquivo", "Fechar todos os canvases", 1, false, [];
     Settings, "Arquivo", "Abrir configurações", 1, false, [];
@@ -190,6 +191,7 @@ actions! {
     SelectionAdd, "Seleção", "Adicionar à seleção enquanto segura", 4, true, ["Shift"];
     SelectionSubtract, "Seleção", "Subtrair da seleção enquanto segura", 4, true, ["Alt"];
     Proportion, "Transformação", "Alternar proporção enquanto segura", 8, true, ["Shift"];
+    ConstrainMove, "Transformação", "Restringir movimento a 45° enquanto segura", 8, true, ["Shift"];
     RotationSnap, "Transformação", "Encaixar rotação em 15° enquanto segura", 8, true, ["Shift"];
 }
 
@@ -393,9 +395,9 @@ impl Shortcuts {
     pub fn conflicts(&self, action: Action, binding: &Binding) -> Vec<Action> {
         Action::ALL.iter().copied().filter(|other| *other != action
             && other.scope() & action.scope() != 0
-            // These two held gestures intentionally share Shift, but never act on
-            // the same drag: one resizes, the other rotates.
-            && !matches!((action, *other), (Action::Proportion, Action::RotationSnap) | (Action::RotationSnap, Action::Proportion))
+            // These modifiers share Shift in mutually exclusive move/resize/rotate drags.
+            && !(matches!(action, Action::Proportion | Action::RotationSnap | Action::ConstrainMove)
+                && matches!(other, Action::Proportion | Action::RotationSnap | Action::ConstrainMove))
             && self.bindings(*other).contains(binding)).collect()
     }
     pub fn assign(&mut self, action: Action, slot: usize, binding: Binding, replace: bool) -> bool {
@@ -504,6 +506,27 @@ mod tests {
             pressed: true,
             repeat: false,
             modifiers,
+        }
+    }
+    #[test]
+    fn movement_constraint_can_be_rebound_without_changing_resize_or_rotation() {
+        let ctx = egui::Context::default();
+        let mut shortcuts = Shortcuts::default();
+        assert!(shortcuts.assign(Action::ConstrainMove, 0, Binding::parse("Alt"), false));
+        for modifiers in [Modifiers::SHIFT, Modifiers::ALT, Modifiers::NONE] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    modifiers,
+                    ..Default::default()
+                },
+                |ctx| {
+                    ctx.input(|input| {
+                        assert_eq!(shortcuts.held(input, Action::ConstrainMove), modifiers.alt);
+                        assert_eq!(shortcuts.held(input, Action::Proportion), modifiers.shift);
+                        assert_eq!(shortcuts.held(input, Action::RotationSnap), modifiers.shift);
+                    });
+                },
+            );
         }
     }
     #[test]

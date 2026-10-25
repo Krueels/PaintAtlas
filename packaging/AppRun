@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+APPDIR=${APPDIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}
+export PATH="$APPDIR/usr/bin:${PATH:-/usr/local/bin:/usr/bin:/bin}"
+export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Use the host's current trust store for bundled curl.
+if [ -z "${CURL_CA_BUNDLE:-}" ]; then
+    for bundle in /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/cert.pem; do
+        if [ -f "$bundle" ]; then
+            export CURL_CA_BUNDLE="$bundle"
+            break
+        fi
+    done
+fi
+exec "$APPDIR/usr/bin/paintatlas" "$@"

@@ -35,7 +35,7 @@ All commands process the active visible raster layer, respect the current select
 
 ## Implementation details and differences
 
-- Gaussian blur uses three separable sliding-box passes as a fast Gaussian approximation. Box blur uses a single separable box kernel. Both process high-precision premultiplied pixels so transparency does not produce dark fringes.
+- Gaussian blur uses three separable sliding-box passes as a fast Gaussian approximation. Box blur uses a single separable box kernel. Both process high-precision premultiplied pixels so transparency does not produce dark fringes. Large images use parallel row bands with cache-friendly vertical passes and exact integer normalization. Sparse drawings skip transparent margins outside the full kernel support. The preview reuses group composites already calculated for the current update.
 - Motion, radial, zoom, and shape blur use bounded sampling. Shape blur offers disk, hexagon, and square kernels; radial and zoom effects expose a center and sample count. Iris and Tilt-Shift blend a preblurred image with a focus mask; they do not reproduce Adobe's lens, bokeh, or interactive pin systems.
 - Surface Blur and Reduce Noise use a sparse range-weighted neighborhood. Despeckle and Dust & Scratches are median/edge/threshold-based approximations, not Adobe's proprietary denoisers.
 - Median uses alpha-weighted RGB sliding histograms. Minimum and Maximum use separable monotonic queues. Their cost does not grow quadratically with radius.

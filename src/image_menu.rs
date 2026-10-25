@@ -414,6 +414,7 @@ impl PaintAtlas {
     fn preview_pixels(&mut self, layer: usize, pixels: &[u8]) {
         self.doc.layers[layer].pixels.copy_from_slice(pixels);
         self.doc.rebuild_groups_after(None, Some(layer));
+        self.groups_prepared = true;
         // Only this layer changed. Keep every other GPU texture intact.
         self.doc.damage = Some([0, 0, self.doc.width as usize, self.doc.height as usize]);
         self.doc.dirty_tiles.clear();
@@ -430,7 +431,9 @@ impl PaintAtlas {
                 self.preview_pixels(editor.layer, &editor.original);
                 self.checkpoint();
             }
-            if let Some(pixels) = &editor.latest {
+            if let Some(pixels) = &editor.latest
+                && (is_group || !editor.preview_applied)
+            {
                 self.preview_pixels(editor.layer, pixels);
             }
             let changed =

@@ -823,7 +823,7 @@ fn paint_locked(dst: &mut [u8], color: [u8; 4], opacity: f32) {
         dst[c] = (dst[c] as f32 * (1.0 - alpha) + color[c] as f32 * alpha).round() as u8;
     }
 }
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())

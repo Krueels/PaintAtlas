@@ -88,11 +88,14 @@ impl PaintAtlas {
         self.invalidate_document_view();
     }
     fn invalidate_document_view(&mut self) {
+        self.picker = super::picker_ui::State::default();
+        self.fill_reveal.clear();
         // Rebuild GPU resources for the active document only; inactive tabs stay in RAM.
         self.textures.clear();
         self.composite.clear();
         self.doc.damage = None;
         self.refresh = true;
+        self.groups_prepared = false;
         self.zoom_animation = None;
         self.fit_animation = None;
         self.smooth_fit = false;

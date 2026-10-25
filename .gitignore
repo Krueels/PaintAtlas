@@ -15,3 +15,6 @@ Thumbs.db
 !.env.example
 /.idea/
 /.vscode/
+
+# Pacotes gerados
+/dist/

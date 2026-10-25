@@ -252,7 +252,7 @@ impl Document {
             }
             self.active = child;
             if let Ok(mut floating) =
-                crate::selection::Floating::new(self, mask, transform.duplicate)
+                crate::selection::Floating::for_layer(self, mask, transform.duplicate)
             {
                 floating.bounds = transform.bounds;
                 floating.angle = transform.angle;
