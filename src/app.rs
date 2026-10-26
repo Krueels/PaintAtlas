@@ -1,4 +1,6 @@
 use crate::shortcuts::Action as Shortcut;
+#[path = "brush_hud.rs"]
+mod brush_hud;
 #[path = "canvas_backdrop.rs"]
 mod canvas_backdrop;
 #[path = "clipboard_motion.rs"]
@@ -21,6 +23,8 @@ mod image_menu;
 mod layer_menu;
 #[path = "picker_ui.rs"]
 mod picker_ui;
+#[path = "scrubby_zoom.rs"]
+mod scrubby_zoom;
 #[path = "selection_ui.rs"]
 mod selection_ui;
 use crate::document::{Brush, Document, History, MAX_SIDE, Tool};
@@ -117,6 +121,8 @@ pub struct PaintAtlas {
     rotation_target: Option<f32>,
     mirrored: bool,
     zoom: f32,
+    scrubby_zoom: scrubby_zoom::State,
+    brush_hud: brush_hud::State,
     zoom_animation: Option<(f32, Vec2)>,
     pan: Vec2,
     fit: bool,
@@ -272,6 +278,8 @@ impl PaintAtlas {
             rotation_target: None,
             mirrored: false,
             zoom: 1.0,
+            scrubby_zoom: scrubby_zoom::State::default(),
+            brush_hud: brush_hud::State::default(),
             zoom_animation: None,
             pan: Vec2::ZERO,
             fit: true,
@@ -647,6 +655,9 @@ impl PaintAtlas {
                     app.open_adjustment(ctx, crate::image_ops::Adjustment::Invert);
                 }
             }
+            if scene == "zoom-tool" {
+                app.select_tool(Tool::Zoom);
+            }
             if scene == "export-as" {
                 app.open_export_as();
             }
@@ -884,6 +895,8 @@ impl PaintAtlas {
         }
     }
     fn reset(&mut self, doc: Document, path: Option<PathBuf>, dirty: bool) {
+        self.scrubby_zoom.clear();
+        self.brush_hud.clear();
         self.clipboard_motion.cancel_flight();
         self.picker = picker_ui::State::default();
         self.fill_reveal.clear();
@@ -1147,6 +1160,7 @@ impl PaintAtlas {
                 Shortcut::Rectangle => self.select_tool(Tool::Rectangle),
                 Shortcut::Ellipse => self.select_tool(Tool::Ellipse),
                 Shortcut::Hand => self.select_tool(Tool::Hand),
+                Shortcut::ZoomTool => self.select_tool(Tool::Zoom),
                 Shortcut::SelectRect => self.select_tool(Tool::SelectRect),
                 Shortcut::Lasso => self.select_tool(Tool::Lasso),
                 Shortcut::SmallerBrush => self.size = (self.size - 2.0).max(1.0),
@@ -1377,6 +1391,15 @@ impl PaintAtlas {
                             ));
                         }
                     });
+                });
+                ui.horizontal(|ui| {
+                    let zoom_out = self.settings.shortcuts.label(Shortcut::ZoomOutModifier);
+                    if ui.checkbox(&mut self.settings.scrubby_zoom, "Scrubby Zoom")
+                        .on_hover_text(format!("Ligado: arraste para aproximar/afastar. Clique aproxima; {zoom_out} + clique afasta.")).changed() {
+                        self.settings_pending = true;
+                        self.settings_edited = std::time::Instant::now();
+                    }
+                    crate::theme::caption(ui, format!("Zoom: clique aproxima · {zoom_out} + clique afasta"));
                 });
                 ui.add_space(4.0);
             });
@@ -1894,7 +1917,9 @@ impl PaintAtlas {
         {
             ctx.request_repaint();
         }
-        let panning = (space || self.tool == Tool::Hand) && down || middle;
+        let adjusting_brush = self.brush_hud_input(ui, &response);
+        let zooming = adjusting_brush || self.scrubby_zoom_input(ui, &response, bounds);
+        let panning = !zooming && ((space || self.tool == Tool::Hand) && down || middle);
         if panning && response.hovered() && self.gesture.is_none() {
             self.fit_animation = None;
             self.pan += delta;
@@ -1908,13 +1933,17 @@ impl PaintAtlas {
             mirrored: self.mirrored,
         };
         let to_doc = |p: Pos2| view.document(p);
-        let selection_consumed =
-            if self.pending.is_none() && !self.new_dialog && self.image_editor.is_none() {
-                self.selection_input(ui, &response, view, panning)
-            } else {
-                true
-            };
+        let selection_consumed = if !zooming
+            && self.pending.is_none()
+            && !self.new_dialog
+            && self.image_editor.is_none()
+        {
+            self.selection_input(ui, &response, view, panning)
+        } else {
+            true
+        };
         if !selection_consumed
+            && self.tool != Tool::Zoom
             && (!panning || self.gesture.is_some())
             && self.pending.is_none()
             && !self.new_dialog
@@ -2147,7 +2176,8 @@ impl PaintAtlas {
                 );
             }
         }
-        if response.hovered()
+        if !zooming
+            && response.hovered()
             && let Some(p) = pointer
         {
             if self.selection.floating.is_none()
@@ -2185,6 +2215,9 @@ impl PaintAtlas {
             }
         }
         self.selection_overlay(ui, view);
+        if zooming {
+            ctx.set_cursor_icon(self.zoom_cursor(ctx));
+        }
         let (picker_pointer, picker_down) = if self.screenshot.is_some()
             && std::env::var("PAINTATLAS_SMOKE_SCENE").as_deref() == Ok("eyedropper")
         {
@@ -2199,6 +2232,7 @@ impl PaintAtlas {
             self.color = color;
         }
         self.picker.paint(ctx);
+        self.paint_brush_hud(ui, view);
     }
     fn paint_brush_cursor(
         &self,
@@ -2282,6 +2316,7 @@ impl PaintAtlas {
             ("Retângulo", Tool::Rectangle, Shortcut::Rectangle),
             ("Elipse", Tool::Ellipse, Shortcut::Ellipse),
             ("Mover tela", Tool::Hand, Shortcut::Hand),
+            ("Zoom", Tool::Zoom, Shortcut::ZoomTool),
             ("Seleção", Tool::SelectRect, Shortcut::SelectRect),
             ("Laço", Tool::Lasso, Shortcut::Lasso),
         ];
@@ -2322,6 +2357,16 @@ impl PaintAtlas {
         crate::theme::caption(ui, &self.tablet.name);
         crate::theme::caption(ui, format!("Pressão: {:.0}%", self.tablet.current * 100.0));
         ui.label(self.tool.name());
+        if self.tool == Tool::Zoom {
+            crate::theme::caption(
+                ui,
+                format!(
+                    "Clique: aproximar\n{} + clique: afastar\nArraste: zoom contínuo quando Scrubby Zoom está ligado.",
+                    self.settings.shortcuts.label(Shortcut::ZoomOutModifier)
+                ),
+            );
+            return;
+        }
         if matches!(self.tool, Tool::SelectRect | Tool::Lasso) {
             self.selection_properties(ui);
             return;
@@ -3181,7 +3226,8 @@ impl PaintAtlas {
         crate::theme::caption(
             ui,
             format!(
-                "Roda: zoom\n{} + arrastar: mover\n{} + clique: pegar cor",
+                "Roda: zoom\n{} + arrastar: zoom contínuo\n{} + arrastar: mover\n{} + clique: pegar cor",
+                self.settings.shortcuts.label(Shortcut::TemporaryZoom),
                 self.settings.shortcuts.label(Shortcut::Pan),
                 self.settings.shortcuts.label(Shortcut::TemporaryPicker)
             ),
@@ -3661,6 +3707,56 @@ impl PaintAtlas {
 }
 impl eframe::App for PaintAtlas {
     fn raw_input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+        if self.screenshot.is_some()
+            && ctx.viewport_id() == egui::ViewportId::ROOT
+            && std::env::var("PAINTATLAS_SMOKE_SCENE")
+                .is_ok_and(|scene| scene.starts_with("scrubby-zoom"))
+        {
+            input
+                .events
+                .retain(|e| matches!(e, egui::Event::Screenshot { .. }));
+            input.time = Some(self.frames as f64 / 60.0);
+            input.focused = true;
+            input.modifiers = if (6..37).contains(&self.frames) {
+                egui::Modifiers::CTRL
+            } else {
+                egui::Modifiers::NONE
+            };
+            if let Some(bounds) = self.last_canvas_bounds {
+                let origin = bounds.center() + Vec2::new(40.0, -30.0);
+                let direction = if std::env::var("PAINTATLAS_SMOKE_SCENE").as_deref()
+                    == Ok("scrubby-zoom-out")
+                {
+                    -1.0
+                } else {
+                    1.0
+                };
+                let progress = (self.frames.saturating_sub(6) as f32 / 30.0).clamp(0.0, 1.0);
+                if self.frames >= 6 {
+                    input.events.push(egui::Event::PointerMoved(
+                        origin + Vec2::new(direction * progress * 100.0, 0.0),
+                    ));
+                }
+                if self.frames == 6 || self.frames == 37 {
+                    let pressed = self.frames == 6;
+                    input.events.push(egui::Event::Key {
+                        key: egui::Key::Space,
+                        physical_key: None,
+                        pressed,
+                        repeat: false,
+                        modifiers: input.modifiers,
+                    });
+                    input.events.push(egui::Event::PointerButton {
+                        pos: origin + Vec2::new(direction * progress * 100.0, 0.0),
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: input.modifiers,
+                    });
+                }
+            }
+            return;
+        }
+
         if !ctx.wants_keyboard_input() && !self.preferences.capturing_shortcut() {
             self.settings
                 .shortcuts
@@ -3910,6 +4006,7 @@ impl eframe::App for PaintAtlas {
                 Ok("layer-fluid-drop") => 34,
                 Ok("fill-reveal" | "fill-reveal-solid") => 14,
                 Ok("clipboard-flight-copy" | "clipboard-flight-paste") => 24,
+                Ok("scrubby-zoom-in" | "scrubby-zoom-out") => 44,
                 Ok("glass-canvas-native") => 60,
                 _ => 20,
             };
@@ -4269,7 +4366,7 @@ mod tests {
                     }
                 })
                 .collect();
-            assert_eq!(buttons.len(), 10, "width {width}");
+            assert_eq!(buttons.len(), 11, "width {width}");
             for rect in buttons {
                 assert!(
                     rect.left() >= 0.0 && rect.right() <= width + 0.01,

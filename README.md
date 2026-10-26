@@ -170,6 +170,8 @@ See the [filter inventory and compatibility assessment](docs/FILTER_CATALOG.md) 
 
 - Panels can dock at canvas edges, share tabs, float, or open in native windows, with a persistent layout.
 - Tools switch to icon-only buttons in narrow panels.
+- Hold **Ctrl+Alt** over the canvas with Brush or Eraser to show the brush HUD. Hold the left mouse button, pen tip, or right mouse button and drag horizontally for size, vertically for opacity (up increases). Release to keep the settings. The shortcut is configurable.
+- Select **Zoom** in Tools (**Z**), or hold **Ctrl+Space** for temporary zoom. A click zooms in; **Alt+click** zooms out in both modes. With **Scrubby Zoom** enabled in the top bar, drag right to zoom in or left to zoom out, anchored at the initial click. Disable it for click-only zoom. Double-click with the Zoom tool to restore the canvas view (fit, centered, without rotation or mirroring). The option persists between sessions, and both the tool shortcut and zoom-out modifier are configurable.
 - Smooth zoom and rotation, panning, and view mirroring. Rotation pivots around the center of the canvas viewport to keep zoomed details in focus.
 - Translucent glass with OpenGL blur: the canvas can appear behind panels when zooming or panning.
 - Settings for the cursor, GPU, colors, appearance, and shortcuts.
@@ -200,6 +202,8 @@ All shortcuts can be changed under **Settings → Shortcuts**, including alterna
 | Decrease / increase brush size | [ / ] |
 | Brush sizes | F6 |
 | Zoom | Mouse wheel, Ctrl++ / Ctrl+- |
+| Zoom tool / zoom-out click modifier | Z / Alt |
+| Temporary zoom | Hold Ctrl+Space; drag left/right when Scrubby Zoom is enabled |
 | 100% zoom / fit to window | Ctrl+0 / F |
 | Rotate view −15° / +15° | Q / W |
 | Mirror view | M |

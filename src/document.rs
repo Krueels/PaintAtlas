@@ -58,6 +58,7 @@ pub enum Tool {
     Rectangle,
     Ellipse,
     Hand,
+    Zoom,
     SelectRect,
     Lasso,
 }
@@ -72,6 +73,7 @@ impl Tool {
             Self::Rectangle => "Retângulo",
             Self::Ellipse => "Elipse",
             Self::Hand => "Mover tela",
+            Self::Zoom => "Zoom",
             Self::SelectRect => "Seleção retangular",
             Self::Lasso => "Laço de seleção",
         }

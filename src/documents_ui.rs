@@ -88,6 +88,8 @@ impl PaintAtlas {
         self.invalidate_document_view();
     }
     fn invalidate_document_view(&mut self) {
+        self.scrubby_zoom.clear();
+        self.brush_hud.clear();
         self.clipboard_motion.cancel_flight();
         self.picker = super::picker_ui::State::default();
         self.fill_reveal.clear();

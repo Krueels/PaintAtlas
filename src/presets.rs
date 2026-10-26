@@ -62,6 +62,8 @@ pub struct Settings {
     pub cursor_style: crate::preferences::CursorStyle,
     #[serde(default)]
     pub circle_cursor_pressure: bool,
+    #[serde(default = "scrubby_enabled")]
+    pub scrubby_zoom: bool,
     #[serde(default)]
     pub render_gpu: String,
     #[serde(default)]
@@ -75,6 +77,9 @@ pub struct Settings {
     #[serde(default)]
     pub originals: Vec<Preset>,
 }
+fn scrubby_enabled() -> bool {
+    true
+}
 impl Default for Settings {
     fn default() -> Self {
         let mut settings = Self {
@@ -85,6 +90,7 @@ impl Default for Settings {
             appearance: Default::default(),
             cursor_style: Default::default(),
             circle_cursor_pressure: false,
+            scrubby_zoom: true,
             render_gpu: String::new(),
             triangular_color_selector: false,
             selected: 0,
@@ -326,9 +332,21 @@ mod tests {
         assert!(restored.appearance == crate::theme::Appearance::default());
         assert!(restored.cursor_style == crate::preferences::CursorStyle::Brush);
         assert!(!restored.circle_cursor_pressure);
+        assert!(restored.scrubby_zoom);
         assert!(restored.render_gpu.is_empty());
         assert_eq!(restored.new_canvas, NewCanvasSettings::default());
         assert!(restored.valid());
+    }
+    #[test]
+    fn scrubby_zoom_preference_survives_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let settings = Settings {
+            scrubby_zoom: false,
+            ..Default::default()
+        };
+        settings.save(&path).unwrap();
+        assert!(!Settings::load(&path).unwrap().scrubby_zoom);
     }
     #[test]
     fn canvas_defaults_survive_restart_and_invalid_dimensions_are_rejected() {

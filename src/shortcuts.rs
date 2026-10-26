@@ -155,6 +155,8 @@ actions! {
     Line, "Ferramentas", "Linha", 1, false, ["L"];
     Rectangle, "Ferramentas", "Retângulo", 1, false, ["R"];
     Ellipse, "Ferramentas", "Elipse", 1, false, ["O"];
+    ZoomTool, "Ferramentas", "Zoom", 1, false, ["Z"];
+    ZoomOutModifier, "Canvas", "Afastar ao clicar com a ferramenta Zoom", 16, true, ["Alt"];
     Hand, "Ferramentas", "Mover tela", 1, false, ["H"];
     SelectRect, "Ferramentas", "Seleção retangular", 1, false, ["S"];
     Lasso, "Ferramentas", "Laço", 1, false, ["A"];
@@ -168,7 +170,9 @@ actions! {
     ZoomIn, "Canvas", "Aumentar zoom", 9, false, ["Ctrl+Plus", "Ctrl+Equals", "Ctrl+Shift+Plus", "Ctrl+Shift+Equals"];
     ZoomOut, "Canvas", "Diminuir zoom", 9, false, ["Ctrl+Minus", "Ctrl+Shift+Minus"];
     ResetZoom, "Canvas", "Zoom de 100%", 9, false, ["Ctrl+0"];
+    TemporaryZoom, "Canvas", "Zoom temporário: arraste para aproximar/afastar", 15, true, ["Ctrl+Space"];
     Pan, "Canvas", "Mover vista enquanto segura", 15, true, ["Space"];
+    BrushHud, "Pincel", "HUD: arraste para tamanho / opacidade", 17, true, ["Ctrl+Alt"];
     TemporaryPicker, "Pincel", "Conta-gotas temporário enquanto segura", 2, true, ["Alt"];
     SelectAll, "Seleção", "Selecionar tudo", 1, false, ["Ctrl+A"];
     Deselect, "Seleção", "Desmarcar seleção", 1, false, ["Ctrl+D"];
