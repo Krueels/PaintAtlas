@@ -1,5 +1,7 @@
 # Documentation
 
+For Portuguese translations, see the [Brazilian Portuguese documentation](pt-br/README.md).
+
 ## Current documentation
 
 - [Reliability and scale-up TODO](../TODO.md): short active task queue.
