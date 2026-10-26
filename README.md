@@ -1,23 +1,25 @@
 # PaintAtlas
 
-A raster drawing studio for Linux, built in **Rust**, with a Portuguese-language interface. A personal project inspired by Clip Studio Paint's illustration workflow: pressure-sensitive brushes, layers, selections, and transforms, with dockable panels and translucent glass styling.
+A cross-platform raster drawing studio built in **Rust**, with an interface available in English and Brazilian Portuguese. A personal project inspired by Clip Studio Paint's illustration workflow: brushes, layers, selections, and transforms, with dockable panels and translucent glass styling. Linux supports pressure-sensitive tablets through XInput2/evdev; Windows supports standard pointer input.
 
 [Source code on GitHub](https://github.com/Krueels/PaintAtlas)
 
-![PaintAtlas startup screen with original artwork by Krueels](docs/splash.png)
+![PaintAtlas startup screen with original artwork by Krueels](docs/images/splash.png)
 
 Startup screen featuring original artwork by [Krueels](https://github.com/Krueels).
 
 ## Build and run
 
-Requirements: stable Rust with Cargo, a C compiler/linker, a Linux desktop session, and OpenGL-capable graphics drivers. File dialogs use `xdg-desktop-portal` and your desktop's portal backend; GTK is not required to build. Install the system `curl` utility to import images from URLs.
+Requirements: stable Rust with Cargo and a C compiler/linker. Linux requires a desktop session and OpenGL-capable graphics drivers. Windows builds natively with the MSVC Rust toolchain. Vulkan can be selected in Settings on platforms with a Vulkan-capable driver; OpenGL remains the default. File dialogs use the native platform integration; on Linux they use `xdg-desktop-portal`. Install `curl` to import images from URLs on Linux.
 
 From the project directory:
 
 ```bash
-./compilar.sh
+./compile.sh
 ./target/debug/paintatlas
 ```
+
+`compile.sh` is a convenience wrapper; it is optional. The equivalent command is `cargo build` (or `cargo build --release` for an optimized build).
 
 Or run directly with Cargo:
 
@@ -28,18 +30,18 @@ cargo run
 For an optimized build:
 
 ```bash
-./compilar.sh --release
+./compile.sh --release
 ./target/release/paintatlas
 ```
 
-Keep `default_brushes/` next to the executable when distributing a local copy with the brush tip pack. The splash background and Inter font are embedded in the executable.
+Keep `assets/default_brushes/` next to the executable when distributing a local copy with the brush tip pack. The splash background and Inter font are embedded in the executable.
 
 ## AppImage (Linux x86_64)
 
-Build an optimized portable package with:
+This packaging step is optional. Use it only if you want a portable Linux AppImage; the app can also be run from Cargo or distributed in another format. Build the AppImage with:
 
 ```bash
-./gerar-appimage.sh
+./generate-appimage.sh
 ```
 
 The executable package, SHA256 checksum, and build information are written to `dist/`. The script downloads and caches [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy) under `target/appimage-tools/`; it does not install system-wide tools. Use `--skip-build` to package an existing release executable. The package includes the default brush pack, Inter license, curl for browser image downloads, and the libraries loaded dynamically for X11, Wayland, and tablet input. User settings remain in the usual user configuration directory.
@@ -52,9 +54,13 @@ Launch the result directly, or without FUSE using:
 
 This local build uses the build machine's glibc baseline and the destination's graphics drivers. It is intended for the current CachyOS installation and compatible systems; compatibility with older distributions is not guaranteed. For broad distribution, build on an older supported Linux base. Packaging tools and generated packages are ignored by Git. The app's built-in Inter fallback is included; a locally installed SF Pro font is not copied into the package.
 
+## Windows installer and updates
+
+Tagged GitHub releases include a per-user Windows installer (`PaintAtlas-Setup-windows-x86_64.exe`) and a portable ZIP. The installer adds Start Menu shortcuts and does not require administrator privileges. In **Settings → Updates**, automatic release checks can be enabled or disabled; **Check now** queries the official GitHub releases and links to the release page when a newer version is available.
+
 ## Start drawing
 
-The app opens maximized with a splash screen and a centered canvas creation menu. Choose the width, height, DPI, and paper color, open a project or image, or press **Ctrl+V** to create a canvas from a copied image at its original size, preserving transparency. The **Paste image** button does the same. Custom paste shortcuts are also respected. UI labels in this README are translated for reference; the app itself currently uses Portuguese.
+The app opens maximized with a splash screen and a centered canvas creation menu. Choose the width, height, DPI, and paper color, open a project or image, or press **Ctrl+V** to create a canvas from a copied image at its original size, preserving transparency. The **Paste image** button does the same. Custom paste shortcuts are also respected. The app's display language can be changed between English and Brazilian Portuguese in Settings.
 
 Canvas creation settings are saved for future canvases. New canvases start with black as the drawing color. Multiple documents can be opened in tabs; closing the last one returns to the splash screen.
 
@@ -74,7 +80,7 @@ The navigation panel's **Fit** command smoothly animates both zoom and centering
 ### Drawing and brushes
 
 - Brush and eraser controls for size, opacity, hardness, spacing, stabilization, and pressure dynamics.
-- Textured tips from `default_brushes/` and support for importing brush tip images.
+- Textured tips from `assets/default_brushes/` and support for importing brush tip images.
 - Preset list with stroke previews, brush creation, and an option to save adjustments as a new preset.
 - Brush size palette from **1 to 1000 px**, with buttons and circular previews.
 - Brush outline, circle, or dot cursor. Pressure-based resizing is optional for the circle cursor and disabled by default.
@@ -123,7 +129,7 @@ Groups composite as a single image with their own opacity and blend mode. Image 
 
 ### Image menu
 
-![Image menu and adjustments](docs/image-menu.png)
+![Image menu and adjustments](docs/images/image-menu.png)
 
 The **Image** menu groups destructive RGB adjustments and document operations. Adjustable effects use movable, resizable floating windows without dimming the canvas, with live preview, reset, and apply/cancel controls. Loading indicators have reserved space so controls stay in place during processing. Processing runs in a cancellable background task; moving a slider briefly delays recomputation so intermediate requests do not build up. Applying creates one undo step, while canceling restores the original pixels and dirty state.
 
@@ -137,7 +143,7 @@ Color adjustments affect the **active visible layer**, restricted to the current
 
 Curves can be edited directly: drag control points in both axes, click the graph to add a point, and right-click an interior point to remove it. Expand **Adjust with sliders** for precise input/output controls. Both interfaces edit the same mapping.
 
-![Curves adjustment with live canvas preview](docs/image-curves.png)
+![Curves adjustment with live canvas preview](docs/images/image-curves.png)
 
 These are PaintAtlas implementations for 8-bit RGB images; they do not reproduce Photoshop's algorithms exactly. CMYK, HDR, adjustment layers, and color-profile conversion are not implemented.
 
@@ -154,7 +160,7 @@ Dimension and pixel-memory limits still apply. Geometry operations clear the tem
 
 ### Filter gallery
 
-![Filter gallery with active-layer preview](docs/filter-gallery.png)
+![Filter gallery with active-layer preview](docs/images/filter-gallery.png)
 
 Open **Filter → Filter Gallery** to browse **73 filters in 14 categories**, with search, demonstration thumbnails, a dedicated active-layer preview, and a live preview on the actual canvas. Individual filters are also available through category submenus. Controls include reset, effect strength, apply/cancel, deterministic random seeds, and boundary policies where relevant.
 
@@ -164,7 +170,7 @@ Filters affect the active visible layer and respect selections. Spatial effects 
 
 Use **Ctrl+Alt+F** to repeat the last applied filter with its settings. Filter commands and the gallery can be remapped under **Settings → Shortcuts → Filters**. Last-filter settings persist for the current app session.
 
-See the [filter inventory and compatibility assessment](docs/FILTER_CATALOG.md) for the available effects, the Adobe references used during research, algorithm differences, and deferred features such as Smart Filters, Neural Filters, Liquify, Camera Raw, and perspective tools.
+See the [filter inventory and compatibility assessment](docs/reference/FILTER_CATALOG.md) for the available effects, the Adobe references used during research, algorithm differences, and deferred features such as Smart Filters, Neural Filters, Liquify, Camera Raw, and perspective tools.
 
 ### Interface and settings
 
@@ -175,6 +181,8 @@ See the [filter inventory and compatibility assessment](docs/FILTER_CATALOG.md) 
 - Smooth zoom and rotation, panning, and view mirroring. Rotation pivots around the center of the canvas viewport to keep zoomed details in focus.
 - Translucent glass with OpenGL blur: the canvas can appear behind panels when zooming or panning.
 - Settings for the cursor, GPU, colors, appearance, and shortcuts.
+- OpenGL and Vulkan rendering backends. Vulkan uses `wgpu`; OpenGL-only blur and custom compositing effects are unavailable while Vulkan is selected.
+- Language selection in Settings: English and Brazilian Portuguese. The choice is saved with user preferences.
 - Accent colors, glass intensity, and reduced motion.
 
 The selected GPU takes effect after restarting the app. The canvas and UI share the OpenGL context. If the saved GPU is unavailable, the app uses automatic selection.
@@ -220,9 +228,9 @@ All shortcuts can be changed under **Settings → Shortcuts**, including alterna
 
 ## Drawing tablets on Linux
 
-When `DISPLAY` is available, the app uses X11 or XWayland for pen input. Pressure is primarily read through **XInput2** from the stylus exposed by the driver, including the `xwayland-tablet stylus` used by XP-Pen's PenTablet driver. Monitor mapping remains under desktop/driver control.
+In an X11 session, pressure is read through **XInput2** from the stylus exposed by the driver, including the `xwayland-tablet stylus` used by XP-Pen's PenTablet driver. In a Wayland session, PaintAtlas reads the tablet's **evdev** input node directly; it does not use a zero-pressure XWayland report that could mask the device pressure. Monitor mapping remains under desktop/driver control.
 
-If pressure is unavailable from that source, the app tries evdev without exclusive capture. This requires read access to the device in `/dev/input`. The app does not change permissions and should not be run as root. Device discovery is repeated while the app is running.
+The evdev backend does not capture devices exclusively and requires read access to the device in `/dev/input`. Logind normally grants access to active desktop sessions; if access is denied, configure the system's input-device permissions rather than running PaintAtlas as root. Device discovery is repeated while the app is running.
 
 To observe the input source and pressure for 20 seconds:
 
@@ -245,27 +253,47 @@ Brushes rasterize on the CPU; previews and blend modes use OpenGL. During freeha
 
 ## Development
 
-| File or directory | Responsibility |
-|---|---|
-| `src/main.rs`, `src/app.rs` | Startup, UI, splash screen, and commands |
-| `src/document.rs`, `src/painting.rs`, `src/history.rs` | Pixels, drawing, and history |
-| `src/brush_tip.rs`, `src/presets.rs`, `src/brush_sizes.rs` | Tips, presets, and sizes |
-| `src/documents_ui.rs`, `src/workspace.rs` | Documents and docking |
-| `src/selection*.rs` | Masks, transforms, and previews |
-| `src/blend.rs`, `src/blend_gpu.rs` | CPU/GPU blend modes and radial fill composition |
-| `src/fill_reveal.rs`, `src/picker_ui.rs`, `src/clipboard_motion.rs` | Fill reveal, eyedropper magnifier, and clipboard animations |
-| `src/export_ui.rs` | Export options, background encoding, and file preview |
-| `src/clipboard*.rs`, `src/image_drop*.rs` | Clipboard and drag-and-drop import |
-| `src/image_menu.rs`, `src/image_ops.rs` | Image adjustments, geometry, previews, and background jobs |
-| `src/filter_ui.rs`, `src/filters.rs` | Filter catalog, gallery, and raster processing |
-| `src/tablet.rs`, `src/tablet/` | Pen input and pressure |
-| `src/shortcuts.rs`, `src/shortcut_settings.rs` | Shortcut registry and configuration |
-| `src/theme.rs`, `src/glass_gpu.rs`, `src/canvas_backdrop.rs` | Appearance, glass, and canvas backdrop |
-| `assets/`, `default_brushes/` | Visual assets and brush tip pack |
-| `vendor/` | Dependencies with local modifications |
-| `gerar-appimage.sh`, `packaging/` | Local AppImage build and launcher assets |
+See the [documentation index](docs/README.md) for user guides, technical references, and screenshots. The [architecture guide](docs/reference/ARCHITECTURE.md) maps the source tree and explains conventions for adding modules and features.
 
-**Every future feature with a shortcut must register its action in `src/shortcuts.rs` and use the configurable shortcut system.** This requirement is also highlighted in the source code.
+### Repository structure
+
+```text
+PaintAtlas/
+├── assets/                 # App artwork, icons, fonts, and bundled brush tips
+├── docs/
+│   ├── archive/            # Historical project analysis and reliability notes
+│   ├── images/             # Screenshots used by the documentation
+│   ├── pt-br/              # Brazilian Portuguese documentation
+│   └── reference/          # Architecture, memory, filters, and design references
+├── packaging/
+│   ├── windows/            # Inno Setup installer definition
+│   ├── AppRun              # AppImage launcher
+│   └── paintatlas.desktop  # Linux desktop entry
+├── src/
+│   ├── brush/              # Brush tips, painting, and stroke processing
+│   ├── document/           # Documents, layers, groups, selections, and history
+│   ├── graphics/           # GPU shaders and compositing helpers
+│   ├── image/              # Image operations and filters
+│   ├── input/              # Tablet and pen input backends
+│   ├── io/                 # Clipboard and drag-and-drop image input
+│   ├── settings/           # Preferences, shortcuts, presets, theme, and localization
+│   ├── ui/                 # Application shell, panels, dialogs, and UI flows
+│   ├── main.rs             # Crate entry point and module declarations
+│   ├── brush_hud.rs        # Brush heads-up display behavior
+│   └── scrubby_zoom.rs     # Scrubby zoom interaction
+├── tests/                  # Integration and resource/documentation tests
+├── vendor/                 # Locally patched third-party dependencies
+├── Cargo.toml              # Rust package and dependency configuration
+├── Cargo.lock              # Locked dependency versions
+├── compile.sh              # Convenience build wrapper
+├── generate-appimage.sh    # Linux AppImage packaging script
+├── README.md               # Project overview and user guide
+└── TODO.md                 # Active development queue
+```
+
+The tree is intentionally condensed: `src/ui/` and other module directories contain additional files, while `target/` and generated packages in `dist/` are build outputs rather than source.
+
+**Every future feature with a shortcut must register its action in `src/settings/shortcuts.rs` and use the configurable shortcut system.** Shortcut configuration and editing are implemented in `src/settings/shortcut_settings.rs`.
 
 The copies in `vendor/egui_dock`, `vendor/egui-winit`, and `vendor/winit` are part of the build. Do not remove them: they include docking, image clipboard, and Linux drag-and-drop fixes. Vendored dependency licenses remain in their respective directories.
 
@@ -287,7 +315,7 @@ PAINTATLAS_SCREENSHOT=/tmp/paintatlas-splash.png \
 cargo run
 ```
 
-The app exits this run after saving the screenshot. Other screenshots and an earlier analysis are in `docs/`; older materials may show previous versions of the interface.
+The app exits this run after saving the screenshot. Additional screenshots are in [`docs/images/`](docs/images/); an older project analysis is archived in [`docs/archive/`](docs/archive/) and may not describe the current code.
 
 ## Git
 
@@ -320,7 +348,7 @@ For a fresh checkout:
 ```bash
 git clone https://github.com/Krueels/PaintAtlas.git
 cd PaintAtlas
-./compilar.sh
+./compile.sh
 ```
 
 GitHub pushes over HTTPS require a personal access token or an authenticated credential helper; an account password cannot be used for Git authentication. An SSH remote is also supported if an SSH key is configured for your GitHub account.
