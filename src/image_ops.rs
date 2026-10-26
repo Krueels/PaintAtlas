@@ -743,6 +743,30 @@ pub fn geometry(
     dimensions(&doc, nw, nh)?;
     for layer in &mut doc.layers {
         canceled(cancel)?;
+        for ruler in &mut layer.rulers {
+            ruler.map_geometry(|[x, y]| match op {
+                Geometry::Resize { .. } => [x * nw as f32 / w as f32, y * nh as f32 / h as f32],
+                Geometry::Canvas { anchor, .. } => [
+                    x + ((nw as i64 - w as i64) * anchor[0] as i64 / 2) as f32,
+                    y + ((nh as i64 - h as i64) * anchor[1] as i64 / 2) as f32,
+                ],
+                Geometry::Crop([x0, y0, ..]) => [x - x0 as f32, y - y0 as f32],
+                Geometry::Rotate90 => [h as f32 - y, x],
+                Geometry::Rotate270 => [y, w as f32 - x],
+                Geometry::Rotate180 => [w as f32 - x, h as f32 - y],
+                Geometry::FlipHorizontal => [w as f32 - x, y],
+                Geometry::FlipVertical => [x, h as f32 - y],
+                Geometry::Rotate(angle) => {
+                    let (s, c) = angle.to_radians().sin_cos();
+                    let (x, y) = (x - w as f32 / 2.0, y - h as f32 / 2.0);
+                    [
+                        c * x - s * y + nw as f32 / 2.0,
+                        s * x + c * y + nh as f32 / 2.0,
+                    ]
+                }
+                _ => [x, y],
+            });
+        }
         if let Geometry::Resize { filter, .. } = op {
             layer.pixels = resized(std::mem::take(&mut layer.pixels), w, h, nw, nh, filter);
             continue;

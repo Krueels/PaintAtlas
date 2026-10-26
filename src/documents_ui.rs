@@ -36,12 +36,19 @@ impl PaintAtlas {
         format!("{name}{}", if dirty { " •" } else { "" })
     }
     pub(super) fn document_change_allowed(&mut self) -> bool {
+        if self.quick_shape.as_ref().is_some_and(|e| e.editing) {
+            self.status =
+                "Aplique a QuickShape ou restaure o traço original antes de trocar de canvas."
+                    .into();
+            return false;
+        }
+        self.finish_quickshape(false);
         if self.image_editor.is_some() {
             self.status =
                 "Aplique ou cancele a operação de imagem antes de trocar de canvas.".into();
             return false;
         }
-        if self.gesture.is_some() || self.selection.floating.is_some() {
+        if self.gesture.is_some() || self.ruler_ui.editing() || self.selection.floating.is_some() {
             self.status =
                 "Termine o traço ou aplique/cancele a transformação antes de trocar de tela."
                     .into();
@@ -90,6 +97,10 @@ impl PaintAtlas {
     fn invalidate_document_view(&mut self) {
         self.scrubby_zoom.clear();
         self.brush_hud.clear();
+        self.quick_shape = None;
+        self.quick_shape_toolbar = None;
+        self.ruler_ui = super::ruler_ui::State::default();
+        self.doc.ruler_copies.clear();
         self.clipboard_motion.cancel_flight();
         self.picker = super::picker_ui::State::default();
         self.fill_reveal.clear();

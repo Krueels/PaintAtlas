@@ -10,6 +10,10 @@ pub(super) enum LayerAction {
     Rasterize,
     ClearEffects,
     Rename,
+    EditRulers,
+    RulerScope(crate::rulers::Scope),
+    RulerVisible(bool),
+    RemoveRulers,
     Label(Option<[u8; 3]>),
 }
 
@@ -37,6 +41,17 @@ impl PaintAtlas {
         ui.add_enabled_ui(available, |ui| {
             if ui.button(self.settings.shortcuts.menu(Shortcut::LayerGroup, "Agrupar selecionadas")).clicked() { action = Some(LayerAction::Group); }
             if ui.add_enabled(self.selected_layer_indices().len() > 1, egui::Button::new(self.settings.shortcuts.menu(Shortcut::LayerMerge, "Mesclar selecionadas"))).clicked() { action = Some(LayerAction::MergeSelected); }
+            if !self.doc.layers[index].rulers.is_empty() {
+                ui.menu_button("Réguas da camada", |ui| {
+                    if ui.button("Editar réguas").clicked() { action = Some(LayerAction::EditRulers); }
+                    for scope in [crate::rulers::Scope::Layer, crate::rulers::Scope::Folder, crate::rulers::Scope::All] {
+                        if ui.button(scope.label()).clicked() { action = Some(LayerAction::RulerScope(scope)); }
+                    }
+                    let visible = self.doc.layers[index].rulers.iter().any(|r| r.visible);
+                    if ui.button(if visible { "Ocultar réguas" } else { "Mostrar réguas" }).clicked() { action = Some(LayerAction::RulerVisible(!visible)); }
+                    if ui.button("Excluir réguas").clicked() { action = Some(LayerAction::RemoveRulers); }
+                });
+            }
             if ui.button("Renomear…").clicked() {
                 action = Some(LayerAction::Rename);
             }
@@ -130,6 +145,7 @@ impl PaintAtlas {
             || self.selection.floating.is_some()
             || self.gesture.is_some()
             || self.image_editor.is_some()
+            || self.ruler_ui.editing()
         {
             return;
         }
@@ -143,6 +159,33 @@ impl PaintAtlas {
             selected = vec![self.doc.block_start(index) - 1, index];
         }
         match action {
+            LayerAction::EditRulers => {
+                self.ruler_ui.selected = Some(0);
+                self.select_tool(Tool::Ruler);
+            }
+            LayerAction::RulerScope(_)
+            | LayerAction::RulerVisible(_)
+            | LayerAction::RemoveRulers => {
+                self.history.push_layer_properties(&self.doc);
+                match action {
+                    LayerAction::RulerScope(scope) => {
+                        for r in &mut self.doc.layers[index].rulers {
+                            r.scope = scope;
+                        }
+                    }
+                    LayerAction::RulerVisible(visible) => {
+                        for r in &mut self.doc.layers[index].rulers {
+                            r.visible = visible;
+                        }
+                    }
+                    LayerAction::RemoveRulers => {
+                        self.doc.layers[index].rulers.clear();
+                        self.ruler_ui.selected = None;
+                    }
+                    _ => unreachable!(),
+                }
+                self.dirty = true;
+            }
             LayerAction::Rename => self.rename_layer_focus = true,
             LayerAction::Label(color) => {
                 self.history.push_layers_properties(&self.doc, &selected);

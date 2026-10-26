@@ -8,6 +8,7 @@ const MAX_HISTORY_BYTES: usize = 128 * 1024 * 1024;
 
 #[derive(PartialEq)]
 struct LayerProperties {
+    rulers: Vec<crate::rulers::Ruler>,
     effects: std::sync::Arc<Vec<crate::layer_groups::GroupEffect>>,
     group: Option<u64>,
     parent: Option<u64>,
@@ -21,6 +22,7 @@ struct LayerProperties {
 impl LayerProperties {
     fn from(layer: &Layer) -> Self {
         Self {
+            rulers: layer.rulers.clone(),
             effects: layer.effects.clone(),
             group: layer.group,
             parent: layer.parent,
@@ -33,7 +35,8 @@ impl LayerProperties {
         }
     }
     fn differs(a: &Layer, b: &Layer) -> bool {
-        (!std::sync::Arc::ptr_eq(&a.effects, &b.effects) && a.effects != b.effects)
+        a.rulers != b.rulers
+            || (!std::sync::Arc::ptr_eq(&a.effects, &b.effects) && a.effects != b.effects)
             || a.group != b.group
             || a.parent != b.parent
             || a.label_color != b.label_color
@@ -44,6 +47,7 @@ impl LayerProperties {
             || a.alpha_lock != b.alpha_lock
     }
     fn swap(&mut self, layer: &mut Layer) {
+        std::mem::swap(&mut self.rulers, &mut layer.rulers);
         std::mem::swap(&mut self.effects, &mut layer.effects);
         std::mem::swap(&mut self.group, &mut layer.group);
         std::mem::swap(&mut self.parent, &mut layer.parent);
@@ -150,6 +154,7 @@ impl Entry {
                         .iter()
                         .map(|(_, p)| {
                             p.name.len()
+                                + p.rulers.len() * std::mem::size_of::<crate::rulers::Ruler>()
                                 + std::mem::size_of::<LayerProperties>()
                                 + p.effects.iter().map(|e| e.bytes()).sum::<usize>()
                         })
@@ -180,6 +185,7 @@ impl Entry {
         }
         // Restoring history must invalidate every affected GPU layer, including
         // layer insertions/removals; a previous partial upload is not sufficient.
+        doc.ruler_copies.clear();
         doc.selection = selection;
         doc.damage = None;
     }

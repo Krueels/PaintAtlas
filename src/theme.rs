@@ -505,6 +505,16 @@ fn icon(p: &egui::Painter, center: Pos2, tool: crate::document::Tool, color: Col
         Tool::Ellipse => {
             p.circle_stroke(center, 5.5, stroke);
         }
+        Tool::Ruler => {
+            line(at(2.0, 12.0), at(12.0, 2.0));
+            line(at(2.0, 12.0), at(7.0, 13.0));
+            line(at(7.0, 13.0), at(13.0, 7.0));
+            line(at(13.0, 7.0), at(12.0, 2.0));
+            for i in 0..3 {
+                let v = i as f32 * 2.5;
+                line(at(5.0 + v, 10.0 - v), at(6.5 + v, 11.5 - v));
+            }
+        }
         Tool::Zoom => {
             p.circle_stroke(at(6.0, 6.0), 4.5, stroke);
             line(at(9.5, 9.5), at(13.0, 13.0));

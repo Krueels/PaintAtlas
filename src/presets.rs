@@ -64,6 +64,14 @@ pub struct Settings {
     pub circle_cursor_pressure: bool,
     #[serde(default = "scrubby_enabled")]
     pub scrubby_zoom: bool,
+    #[serde(default = "scrubby_enabled")]
+    pub show_rulers: bool,
+    #[serde(default = "scrubby_enabled")]
+    pub snap_rulers: bool,
+    #[serde(default)]
+    pub quickshape: crate::quickshape::Settings,
+    #[serde(default)]
+    pub references: crate::reference::Library,
     #[serde(default)]
     pub render_gpu: String,
     #[serde(default)]
@@ -91,6 +99,10 @@ impl Default for Settings {
             cursor_style: Default::default(),
             circle_cursor_pressure: false,
             scrubby_zoom: true,
+            show_rulers: true,
+            snap_rulers: true,
+            quickshape: Default::default(),
+            references: Default::default(),
             render_gpu: String::new(),
             triangular_color_selector: false,
             selected: 0,
@@ -182,6 +194,9 @@ impl Settings {
         self.version == 1
             && self.new_canvas.valid()
             && self.appearance.valid()
+            && self.references.valid()
+            && self.quickshape.delay.is_finite()
+            && (0.2..=2.0).contains(&self.quickshape.delay)
             && !self.brushes.is_empty()
             && self.brushes.len() <= 256
             && self.selected < self.brushes.len()
@@ -206,7 +221,8 @@ impl Settings {
             })
     }
     pub fn load(path: &Path) -> Result<Self, String> {
-        if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > 512 * 1024 {
+        // Reference libraries store paths here; allow large lists without embedding pixels.
+        if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > 32 * 1024 * 1024 {
             return Err("Preferências muito grandes".into());
         }
         let mut s: Self = serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
@@ -283,6 +299,24 @@ pub fn settings_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quickshape_preferences_roundtrip_and_legacy_defaults() {
+        let mut settings = Settings::default();
+        settings.quickshape.enabled = false;
+        settings.quickshape.delay = 1.2;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("quickshape.json");
+        settings.save(&path).unwrap();
+        let loaded = Settings::load(&path).unwrap();
+        assert!(!loaded.quickshape.enabled);
+        assert_eq!(loaded.quickshape.delay, 1.2);
+        let mut value = serde_json::to_value(&settings).unwrap();
+        value.as_object_mut().unwrap().remove("quickshape");
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        let loaded = Settings::load(&path).unwrap();
+        assert!(loaded.quickshape.enabled);
+        assert_eq!(loaded.quickshape.delay, 0.65);
+    }
     #[test]
     fn custom_presets_and_originals_survive_restart_and_legacy_settings_load() {
         let dir = tempfile::tempdir().unwrap();

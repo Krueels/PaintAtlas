@@ -23,6 +23,10 @@ mod image_menu;
 mod layer_menu;
 #[path = "picker_ui.rs"]
 mod picker_ui;
+#[path = "quickshape_ui.rs"]
+mod quickshape_ui;
+#[path = "ruler_ui.rs"]
+mod ruler_ui;
 #[path = "scrubby_zoom.rs"]
 mod scrubby_zoom;
 #[path = "selection_ui.rs"]
@@ -55,6 +59,8 @@ struct Gesture {
     raw_last: [f32; 2],
     last_size: f32,
     distance_to_dab: f32,
+    guide: Option<crate::rulers::StrokeGuide>,
+    quick: Option<quickshape_ui::Stroke>,
 }
 
 #[derive(Clone, Copy)]
@@ -62,6 +68,7 @@ struct LayerDrag(usize);
 
 pub struct PaintAtlas {
     image_import: Option<crate::image_drop::Job>,
+    references: crate::reference::State,
     image_editor: Option<image_menu::Editor>,
     export_dialog: Option<export_ui::Export>,
     last_filter: Option<crate::filters::Settings>,
@@ -123,6 +130,9 @@ pub struct PaintAtlas {
     zoom: f32,
     scrubby_zoom: scrubby_zoom::State,
     brush_hud: brush_hud::State,
+    ruler_ui: ruler_ui::State,
+    quick_shape: Option<quickshape_ui::Edit>,
+    quick_shape_toolbar: Option<egui::Rect>,
     zoom_animation: Option<(f32, Vec2)>,
     pan: Vec2,
     fit: bool,
@@ -212,6 +222,7 @@ impl PaintAtlas {
         let canvas = settings.new_canvas.clone();
         let mut app = Self {
             image_import: None,
+            references: Default::default(),
             image_editor: None,
             export_dialog: None,
             last_filter: None,
@@ -280,6 +291,9 @@ impl PaintAtlas {
             zoom: 1.0,
             scrubby_zoom: scrubby_zoom::State::default(),
             brush_hud: brush_hud::State::default(),
+            ruler_ui: ruler_ui::State::default(),
+            quick_shape: None,
+            quick_shape_toolbar: None,
             zoom_animation: None,
             pan: Vec2::ZERO,
             fit: true,
@@ -355,6 +369,16 @@ impl PaintAtlas {
                     .unwrap()
                     .set_position(Pos2::new(350.0, 100.0))
                     .set_size(Vec2::new(650.0, 760.0));
+            }
+            if scene == "references" {
+                app.settings.references = Default::default();
+                app.settings
+                    .references
+                    .add([PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/background.jpg")]);
+                app.workspace.layout.apply(crate::workspace::Action::Dock(
+                    crate::workspace::Panel::References,
+                    crate::workspace::Placement::Right,
+                ));
             }
             if scene == "settings" {
                 app.workspace.layout.apply(crate::workspace::Action::Open(
@@ -655,6 +679,38 @@ impl PaintAtlas {
                     app.open_adjustment(ctx, crate::image_ops::Adjustment::Invert);
                 }
             }
+            if scene == "quickshape" {
+                app.quickshape_smoke();
+            }
+            if scene == "rulers" || scene == "perspective-rulers" {
+                app.doc.layers[app.doc.active].pixels.fill(0);
+                app.doc.layers[app.doc.active].alpha_lock = false;
+                let kind = if scene == "rulers" {
+                    crate::rulers::Kind::Symmetry
+                } else {
+                    crate::rulers::Kind::Perspective2
+                };
+                app.create_ruler(kind);
+                if scene == "rulers" {
+                    app.doc.layers[app.doc.active].rulers[0].lines = 6;
+                    let mut brush = app.brush();
+                    brush.size = 5.0;
+                    brush.opacity = 1.0;
+                    brush.tip = None;
+                    brush.color = [65, 145, 230, 255];
+                    app.doc.begin_ruler_stroke(true, [360.0, 260.0]);
+                    for i in 0..80 {
+                        let t = i as f32 / 80.0 * std::f32::consts::TAU;
+                        app.doc.stamp(
+                            [370.0 + 35.0 * t.cos(), 240.0 + 65.0 * t.sin()],
+                            brush.clone(),
+                            false,
+                        );
+                    }
+                }
+                app.doc.ruler_copies.clear();
+                app.changed();
+            }
             if scene == "zoom-tool" {
                 app.select_tool(Tool::Zoom);
             }
@@ -725,12 +781,14 @@ impl PaintAtlas {
         self.tool = if p.eraser { Tool::Eraser } else { Tool::Brush };
     }
     fn select_preset(&mut self, index: usize) {
+        self.finish_quickshape(false);
         self.remember_preset();
         self.apply_preset(index);
         self.settings_pending = true;
         self.settings_edited = std::time::Instant::now();
     }
     fn select_tool(&mut self, tool: Tool) {
+        self.finish_quickshape(false);
         if self.selection.floating.is_some() {
             self.status = format!(
                 "Aplique ({}) ou cancele ({}) a transformação antes de trocar de ferramenta.",
@@ -875,6 +933,7 @@ impl PaintAtlas {
         }
     }
     fn checkpoint(&mut self) {
+        self.finish_quickshape(false);
         self.doc.damage = None;
         self.history.push(&self.doc);
     }
@@ -897,6 +956,9 @@ impl PaintAtlas {
     fn reset(&mut self, doc: Document, path: Option<PathBuf>, dirty: bool) {
         self.scrubby_zoom.clear();
         self.brush_hud.clear();
+        self.ruler_ui = ruler_ui::State::default();
+        self.quick_shape = None;
+        self.quick_shape_toolbar = None;
         self.clipboard_motion.cancel_flight();
         self.picker = picker_ui::State::default();
         self.fill_reveal.clear();
@@ -1048,8 +1110,10 @@ impl PaintAtlas {
         }
     }
     fn undo(&mut self) {
+        self.finish_quickshape(false);
         self.clipboard_motion.cancel_flight();
         self.fill_reveal.clear();
+        self.ruler_ui = ruler_ui::State::default();
         self.selected_layers.clear();
         self.layer_motion = None;
         self.layer_row_slides.clear();
@@ -1065,8 +1129,10 @@ impl PaintAtlas {
         }
     }
     fn redo(&mut self) {
+        self.finish_quickshape(false);
         self.clipboard_motion.cancel_flight();
         self.fill_reveal.clear();
+        self.ruler_ui = ruler_ui::State::default();
         self.selected_layers.clear();
         self.layer_motion = None;
         self.layer_row_slides.clear();
@@ -1082,6 +1148,10 @@ impl PaintAtlas {
         }
     }
     fn shortcuts(&mut self, ctx: &egui::Context) {
+        self.quickshape_pre_input(ctx);
+        if self.quick_shape.as_ref().is_some_and(|e| e.editing) {
+            return;
+        }
         if self.preferences.capturing_shortcut() || self.image_editor.is_some() {
             return;
         }
@@ -1096,6 +1166,7 @@ impl PaintAtlas {
             || self.pending.is_some()
             || self.new_dialog
             || self.gesture.is_some()
+            || self.ruler_ui.editing()
         {
             return;
         }
@@ -1161,6 +1232,21 @@ impl PaintAtlas {
                 Shortcut::Ellipse => self.select_tool(Tool::Ellipse),
                 Shortcut::Hand => self.select_tool(Tool::Hand),
                 Shortcut::ZoomTool => self.select_tool(Tool::Zoom),
+                Shortcut::QuickShapeToggle => {
+                    self.settings.quickshape.enabled = !self.settings.quickshape.enabled;
+                    self.settings_pending = true;
+                    self.settings_edited = std::time::Instant::now();
+                }
+                Shortcut::RulerTool => self.select_tool(Tool::Ruler),
+                Shortcut::SnapRulers | Shortcut::ShowRulers => {
+                    if action == Shortcut::SnapRulers {
+                        self.settings.snap_rulers = !self.settings.snap_rulers;
+                    } else {
+                        self.settings.show_rulers = !self.settings.show_rulers;
+                    }
+                    self.settings_pending = true;
+                    self.settings_edited = std::time::Instant::now();
+                }
                 Shortcut::SelectRect => self.select_tool(Tool::SelectRect),
                 Shortcut::Lasso => self.select_tool(Tool::Lasso),
                 Shortcut::SmallerBrush => self.size = (self.size - 2.0).max(1.0),
@@ -1186,7 +1272,7 @@ impl PaintAtlas {
                 if self.image_editor.is_some() {
                     ui.visuals_mut().disabled_alpha = 1.0;
                 }
-                if self.gesture.is_some()
+                if self.gesture.is_some() || self.ruler_ui.editing() || self.quick_shape.as_ref().is_some_and(|e| e.editing)
                     || self.selection.floating.is_some()
                     || self.pending.is_some()
                     || self.new_dialog
@@ -1392,7 +1478,9 @@ impl PaintAtlas {
                         }
                     });
                 });
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
+                    self.ruler_menu(ui);
+                    ui.separator();
                     let zoom_out = self.settings.shortcuts.label(Shortcut::ZoomOutModifier);
                     if ui.checkbox(&mut self.settings.scrubby_zoom, "Scrubby Zoom")
                         .on_hover_text(format!("Ligado: arraste para aproximar/afastar. Clique aproxima; {zoom_out} + clique afasta.")).changed() {
@@ -1675,6 +1763,15 @@ impl PaintAtlas {
             egui::FontId::proportional(12.0),
             visuals.text_color(),
         );
+        if !layer.rulers.is_empty() {
+            row_painter.text(
+                preview_box.right_bottom(),
+                egui::Align2::RIGHT_BOTTOM,
+                "R",
+                egui::FontId::proportional(11.0),
+                Color32::from_rgb(190, 155, 255),
+            );
+        }
         let mode_info = if layer.blend_mode == crate::blend::BlendMode::Normal {
             String::new()
         } else {
@@ -1933,7 +2030,12 @@ impl PaintAtlas {
             mirrored: self.mirrored,
         };
         let to_doc = |p: Pos2| view.document(p);
+        let quick_editing = !zooming && self.quickshape_input(ui, &response, view, panning);
+        let ruler_editing =
+            !zooming && !quick_editing && self.ruler_input(ui, &response, view, panning);
         let selection_consumed = if !zooming
+            && !quick_editing
+            && !ruler_editing
             && self.pending.is_none()
             && !self.new_dialog
             && self.image_editor.is_none()
@@ -1944,6 +2046,7 @@ impl PaintAtlas {
         };
         if !selection_consumed
             && self.tool != Tool::Zoom
+            && self.tool != Tool::Ruler
             && (!panning || self.gesture.is_some())
             && self.pending.is_none()
             && !self.new_dialog
@@ -1995,6 +2098,14 @@ impl PaintAtlas {
                             } else {
                                 None
                             };
+                            let mut guide = self.doc.begin_ruler_stroke(
+                                self.settings.show_rulers && self.settings.snap_rulers,
+                                point,
+                            );
+                            if !matches!(self.tool, Tool::Brush | Tool::Eraser | Tool::Line) {
+                                guide = None;
+                            }
+                            let point = guide.as_mut().map_or(point, |g| g.snap(point));
                             if !self.tool.is_shape() {
                                 self.doc
                                     .stamp(point, brush.clone(), self.tool == Tool::Eraser);
@@ -2010,6 +2121,19 @@ impl PaintAtlas {
                                 raw_last: point,
                                 last_size: brush.size,
                                 distance_to_dab: (brush.size * brush.spacing).max(0.5),
+                                quick: if self.settings.quickshape.enabled
+                                    && guide.is_none()
+                                    && matches!(self.tool, Tool::Brush | Tool::Eraser)
+                                {
+                                    Some(quickshape_ui::Stroke::new(
+                                        point,
+                                        brush.size,
+                                        ctx.input(|i| i.time),
+                                    ))
+                                } else {
+                                    None
+                                },
+                                guide,
                             });
                         }
                         if self.tool != Tool::Fill {
@@ -2054,60 +2178,94 @@ impl PaintAtlas {
                 let dt = ((now - gesture.sample_time).max(0.0) as f32).min(0.25)
                     / samples.len().max(1) as f32;
                 gesture.sample_time = now;
-                for p in samples {
-                    let mut point = to_doc(p);
-                    // Bound geometry so a pointer far outside the canvas cannot create huge loops.
-                    let margin = self.size.max(256.0);
-                    point[0] = point[0].clamp(-margin, self.doc.width as f32 + margin);
-                    point[1] = point[1].clamp(-margin, self.doc.height as f32 + margin);
-                    gesture.raw_last = point;
-                    if matches!(gesture.tool, Tool::Brush | Tool::Eraser) {
-                        point = gesture.filter.feed(point, self.stabilization, dt);
+                if gesture
+                    .quick
+                    .as_ref()
+                    .is_some_and(|q| q.active.is_some() || q.disabled)
+                {
+                    self.quickshape_hold(&mut gesture, ctx, view, down);
+                    if down {
+                        self.gesture = Some(gesture);
                     }
-                    if point != gesture.last {
-                        let brush = self.brush();
-                        let end_size = brush.size;
-                        if let Some(base) = &gesture.base {
-                            self.doc.layers[self.doc.active].pixels.clone_from(base);
-                            self.doc.shape(gesture.tool, gesture.start, point, brush);
-                            self.doc.damage = None;
-                        } else {
+                } else {
+                    for p in samples {
+                        let mut point = to_doc(p);
+                        // Bound geometry so a pointer far outside the canvas cannot create huge loops.
+                        let margin = self.size.max(256.0);
+                        point[0] = point[0].clamp(-margin, self.doc.width as f32 + margin);
+                        point[1] = point[1].clamp(-margin, self.doc.height as f32 + margin);
+                        if let Some(quick) = &mut gesture.quick {
+                            quick.sample(point, self.brush().size, now, view.zoom);
+                        }
+                        if let Some(guide) = &mut gesture.guide {
+                            point = guide.snap(point);
+                            if guide.take_reset()
+                                && matches!(gesture.tool, Tool::Brush | Tool::Eraser)
+                            {
+                                self.doc.restore_stroke_tiles();
+                                let brush = self.brush();
+                                gesture.last = gesture.start;
+                                gesture.last_size = brush.size;
+                                gesture.distance_to_dab = (brush.size * brush.spacing).max(0.5);
+                                gesture.filter = Stabilizer::new(gesture.start);
+                                self.doc
+                                    .stamp(gesture.start, brush, gesture.tool == Tool::Eraser);
+                                self.changed();
+                            }
+                        }
+                        gesture.raw_last = point;
+                        if matches!(gesture.tool, Tool::Brush | Tool::Eraser) {
+                            point = gesture.filter.feed(point, self.stabilization, dt);
+                        }
+                        if point != gesture.last {
+                            let brush = self.brush();
+                            let end_size = brush.size;
+                            if let Some(base) = &gesture.base {
+                                self.doc.layers[self.doc.active].pixels.clone_from(base);
+                                self.doc.shape(gesture.tool, gesture.start, point, brush);
+                                self.doc.damage = None;
+                            } else {
+                                self.doc.stroke_segment(
+                                    gesture.last,
+                                    point,
+                                    gesture.last_size,
+                                    brush,
+                                    gesture.tool == Tool::Eraser,
+                                    &mut gesture.distance_to_dab,
+                                );
+                            }
+                            if let Some(quick) = &mut gesture.quick {
+                                quick.record(point);
+                            }
+                            gesture.last_size = end_size;
+                            gesture.last = point;
+                            self.changed();
+                        }
+                    }
+                    if down {
+                        self.try_quickshape(&mut gesture, ctx, view);
+                        self.gesture = Some(gesture);
+                    } else if matches!(gesture.tool, Tool::Brush | Tool::Eraser)
+                        && gesture.last != gesture.raw_last
+                    {
+                        for point in gesture.filter.finish(
+                            gesture.raw_last,
+                            self.stabilization,
+                            (self.brush().size * self.spacing * 0.5).max(0.5),
+                        ) {
                             self.doc.stroke_segment(
                                 gesture.last,
                                 point,
                                 gesture.last_size,
-                                brush,
+                                self.brush(),
                                 gesture.tool == Tool::Eraser,
                                 &mut gesture.distance_to_dab,
                             );
+                            gesture.last = point;
+                            gesture.last_size = self.brush().size;
                         }
-                        gesture.last_size = end_size;
-                        gesture.last = point;
                         self.changed();
                     }
-                }
-                if down {
-                    self.gesture = Some(gesture);
-                } else if matches!(gesture.tool, Tool::Brush | Tool::Eraser)
-                    && gesture.last != gesture.raw_last
-                {
-                    for point in gesture.filter.finish(
-                        gesture.raw_last,
-                        self.stabilization,
-                        (self.brush().size * self.spacing * 0.5).max(0.5),
-                    ) {
-                        self.doc.stroke_segment(
-                            gesture.last,
-                            point,
-                            gesture.last_size,
-                            self.brush(),
-                            gesture.tool == Tool::Eraser,
-                            &mut gesture.distance_to_dab,
-                        );
-                        gesture.last = point;
-                        gesture.last_size = self.brush().size;
-                    }
-                    self.changed();
                 }
             }
         }
@@ -2177,6 +2335,7 @@ impl PaintAtlas {
             }
         }
         if !zooming
+            && !quick_editing
             && response.hovered()
             && let Some(p) = pointer
         {
@@ -2214,6 +2373,10 @@ impl PaintAtlas {
                 ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
             }
         }
+        if self.gesture.is_none() {
+            self.doc.ruler_copies.clear();
+        }
+        self.paint_rulers(ui, view);
         self.selection_overlay(ui, view);
         if zooming {
             ctx.set_cursor_icon(self.zoom_cursor(ctx));
@@ -2233,6 +2396,7 @@ impl PaintAtlas {
         }
         self.picker.paint(ctx);
         self.paint_brush_hud(ui, view);
+        self.quickshape_overlay(ui, view);
     }
     fn paint_brush_cursor(
         &self,
@@ -2317,6 +2481,7 @@ impl PaintAtlas {
             ("Elipse", Tool::Ellipse, Shortcut::Ellipse),
             ("Mover tela", Tool::Hand, Shortcut::Hand),
             ("Zoom", Tool::Zoom, Shortcut::ZoomTool),
+            ("Régua", Tool::Ruler, Shortcut::RulerTool),
             ("Seleção", Tool::SelectRect, Shortcut::SelectRect),
             ("Laço", Tool::Lasso, Shortcut::Lasso),
         ];
@@ -2357,6 +2522,10 @@ impl PaintAtlas {
         crate::theme::caption(ui, &self.tablet.name);
         crate::theme::caption(ui, format!("Pressão: {:.0}%", self.tablet.current * 100.0));
         ui.label(self.tool.name());
+        if self.tool == Tool::Ruler {
+            self.ruler_properties(ui);
+            return;
+        }
         if self.tool == Tool::Zoom {
             crate::theme::caption(
                 ui,
@@ -2817,6 +2986,9 @@ impl PaintAtlas {
         });
     }
     fn layers_ui(&mut self, ui: &mut egui::Ui) {
+        if self.ruler_ui.editing() || self.quick_shape.as_ref().is_some_and(|e| e.editing) {
+            ui.disable();
+        }
         let context = ui.ctx().clone();
         let ctx = &context;
         if self.settings.appearance.reduced_motion {
@@ -3321,6 +3493,14 @@ impl PaintAtlas {
         self.apply_workspace_actions(ctx);
     }
     fn panel_ui(&mut self, ui: &mut egui::Ui, panel: crate::workspace::Panel) {
+        // References are independent of the document and remain usable during previews.
+        if panel == crate::workspace::Panel::References {
+            if self.references.show(ui, &mut self.settings.references) {
+                self.settings_pending = true;
+                self.settings_edited = std::time::Instant::now();
+            }
+            return;
+        }
         if self.image_editor.is_some() {
             // Keep document mutations blocked during previews without dimming the canvas.
             ui.visuals_mut().disabled_alpha = 1.0;
@@ -3948,6 +4128,18 @@ impl eframe::App for PaintAtlas {
         {
             self.preferences.cancel_shortcut_capture();
         }
+        self.quickshape_pre_input(ctx);
+        if self
+            .workspace
+            .layout
+            .contains(crate::workspace::Panel::References)
+            && self
+                .references
+                .take_drop(ctx, &mut self.settings.references)
+        {
+            self.settings_pending = true;
+            self.settings_edited = std::time::Instant::now();
+        }
         self.handle_image_drops(ctx);
         if self.startup_canvas_required {
             self.clipboard_shortcuts(ctx);
@@ -3969,7 +4161,14 @@ impl eframe::App for PaintAtlas {
         self.clipboard_feedback_ui(ctx);
         self.image_drop_overlay(ctx);
         crate::theme::finish_glass(ctx);
-        if self.gesture.is_none() && !self.opacity_edit && self.image_editor.is_none() {
+        self.ruler_ui.finish_pointer_edit(ctx);
+        if self.gesture.is_none()
+            && !self.opacity_edit
+            && !self.ruler_ui.editing()
+            && self.quick_shape.is_none()
+            && self.image_editor.is_none()
+        {
+            self.doc.ruler_copies.clear();
             self.history.commit(&self.doc);
         }
 
@@ -3995,6 +4194,13 @@ impl eframe::App for PaintAtlas {
                             .as_ref()
                             .is_some_and(image_menu::Editor::gallery_ready)
                     {
+                        self.frames
+                    } else {
+                        600
+                    }
+                }
+                Ok("references") => {
+                    if self.frames >= 20 && self.references.ready() {
                         self.frames
                     } else {
                         600
@@ -4366,7 +4572,7 @@ mod tests {
                     }
                 })
                 .collect();
-            assert_eq!(buttons.len(), 11, "width {width}");
+            assert_eq!(buttons.len(), 12, "width {width}");
             for rect in buttons {
                 assert!(
                     rect.left() >= 0.0 && rect.right() <= width + 0.01,

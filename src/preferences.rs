@@ -143,9 +143,16 @@ impl Preferences {
     pub fn show(&mut self, ui: &mut egui::Ui, settings: &mut crate::presets::Settings) -> bool {
         let mut changed = false;
         ui.horizontal_wrapped(|ui| {
-            for (i, label) in ["Cursor", "Renderização", "Cores", "Aparência", "Atalhos"]
-                .iter()
-                .enumerate()
+            for (i, label) in [
+                "Cursor",
+                "Renderização",
+                "Cores",
+                "Aparência",
+                "Atalhos",
+                "Desenho",
+            ]
+            .iter()
+            .enumerate()
             {
                 ui.selectable_value(&mut self.tab, i, *label);
             }
@@ -153,6 +160,13 @@ impl Preferences {
         ui.separator();
         ui.scope(|ui| match self.tab {
                 4 => { changed |= self.shortcuts.show(ui, &mut settings.shortcuts); }
+                5 => {
+                    egui::CollapsingHeader::new("QuickShape").default_open(true).show(ui, |ui| {
+                        changed |= ui.checkbox(&mut settings.quickshape.enabled, "Reconhecer formas ao desenhar e segurar").changed();
+                        changed |= ui.add(egui::Slider::new(&mut settings.quickshape.delay, 0.2..=2.0).text("Espera").suffix(" s")).changed();
+                        crate::theme::caption(ui, format!("Desenhe com pincel ou borracha e mantenha a caneta parada no final. Arraste para redimensionar e girar. {} cria formas regulares. Depois de soltar, use Editar forma.", settings.shortcuts.label(crate::shortcuts::Action::QuickShapeRegular)));
+                    });
+                }
 
                 0 => {
                     egui::CollapsingHeader::new("Pincel e borracha").default_open(true).show(ui, |ui| {

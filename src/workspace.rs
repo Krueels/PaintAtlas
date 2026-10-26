@@ -23,9 +23,10 @@ pub enum Panel {
     Files,
     Help,
     Settings,
+    References,
 }
 impl Panel {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Canvas,
         Self::Tools,
         Self::Properties,
@@ -37,6 +38,7 @@ impl Panel {
         Self::Files,
         Self::Help,
         Self::Settings,
+        Self::References,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -51,6 +53,7 @@ impl Panel {
             Self::Files => "Arquivo",
             Self::Help => "Ajuda",
             Self::Settings => "Configurações",
+            Self::References => "Referências",
         }
     }
 }

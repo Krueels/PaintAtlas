@@ -87,6 +87,35 @@ Stabilization ranges from 0% to 100%. Higher values introduce an intentional del
 
 Choose the brush mask under **Properties → Tip / texture**. Transparent tips use their alpha channel; dark regions represent ink in opaque images. Imported tips are copied to `brush_tips/` alongside the preferences, and custom presets persist between sessions.
 
+### Reference panel
+
+Open **Window → References** for a dockable Sub View panel. Add multiple local PNG, JPEG, WebP, GIF, or BMP files, or drop files onto the panel, then switch between them using the list or previous/next buttons. Drag to pan, scroll to zoom around the pointer, and use **Fit**, **100%**, or a double-click to reset the view. Each image remembers its own zoom and position.
+
+Only original file paths and view settings are saved in the application preferences, independently of canvas documents. No image files are copied or embedded in projects. Only the active reference is decoded asynchronously and retained as a display texture; previews are limited to 4096 pixels on the longest side. **Reload original** refreshes an edited file; **Locate original** reconnects a moved file. Removing a reference never deletes the original. GIF references show the first frame.
+
+### QuickShape
+
+Draw with Brush or Eraser, then keep the pen down and still at the end for **0.65 seconds**. QuickShape recognizes straight lines, circular arcs, ellipses, triangles, rectangles, quadrilaterals, and simple polylines. While holding, drag to scale and rotate the result. Hold **Shift** for regular forms (circles, squares, equilateral triangles) and rotation in 15° increments.
+
+After releasing, a small canvas toolbar offers **Edit shape**, **Apply**, and **Original stroke**. Edit shape provides control points and a shape-type selector. Drag points to adjust the geometry, or drag the contour to move it. **Enter** applies; **Esc** restores the exact freehand stroke. Drawing again applies the pending result automatically. The corrected stroke and its subsequent edits share one undo step.
+
+QuickShape preserves brush texture, sampled pressure widths, erasing, alpha lock, selection clipping, and symmetry. Directional ruler snapping takes priority over recognition. Ordinary strokes collect only a bounded point list; pixel tiles are copied for the original-stroke fallback only after recognition, and previews update only when geometry changes or during the brief transition. The freehand stroke smoothly morphs into the recognized shape over 240 ms, including when the pen is released during the transition. Reduced Motion skips this animation. Shapes become raster pixels when applied.
+
+Enable/disable the gesture or change its delay (**0.2–2 seconds**) in **Settings → Drawing → QuickShape**. The Shift/Enter/Escape bindings and an optional toggle shortcut are configurable under **Settings → Shortcuts → QuickShape**. Recognition is geometric and may need correction for ambiguous sketches; the toolbar lets you choose the intended type.
+
+### Drawing rulers and symmetry
+
+Select **Ruler** (**U**) or use the **Rulers** menu in the top bar to create a ruler. Rulers belong to a layer (including groups), remain editable through canvas handles, and are saved in `.patlas` projects. The layer thumbnail shows **R** when it owns rulers; its context menu can edit, hide, remove, or change their scope to the current layer, the same folder/group, or all layers. Duplicating or reordering a layer retains its rulers.
+
+- **Symmetry:** 2–16 simultaneous strokes, with mirror symmetry for even counts or rotational repetition for any count. Textured tips mirror/rotate with each copy. Brush, eraser, and shape strokes share pressure, selection, alpha lock, and one undo step.
+- **Parallel and radial rulers:** constrain freehand strokes to parallel directions or rays through a center.
+- **Straight guides:** constrain strokes to an editable line; horizontal and vertical presets are available.
+- **Perspective:** one, two, or three editable vanishing points. The first movement chooses the closest enabled direction and locks it for that stroke. Return to the starting point to choose another direction. Individual vanishing points can be disabled for snapping; 1/2-point rulers also provide horizon/perpendicular directions.
+
+With Ruler selected, drag on empty canvas space to create another ruler, or drag a handle to reposition its center, angle, or vanishing points. **Shift** snaps ruler angles to 15° increments. Configure the selected ruler in **Properties**. One symmetry ruler and one directional ruler can guide the same stroke; the active layer's enabled rulers take priority over inherited rulers. Each layer can own up to eight rulers.
+
+**Ctrl+2** toggles snapping; **Ctrl+Shift+R** shows/hides rulers (hidden rulers do not snap). These shortcuts are configurable. Guides follow canvas zoom, rotation, and mirroring, and stay aligned when cropping, resizing, flipping, or rotating the document. They are overlays and do not appear in image exports. Perspective/parallel/radial snapping applies to Brush, Eraser, and Line; freeform selection, fills, and perspective deformation of rectangles/ellipses are not currently assisted.
+
 ### Layers and blend modes
 
 Layers support thumbnails, names, visibility, opacity, alpha lock, duplication, and deletion. Drag a thumbnail or layer name to reorder. Right-click a layer to rename, duplicate, delete, merge down, or assign an organizational color. Merge down is available for two visible layers in Normal mode; explicit group rasterization consolidates its children into pixels. Animated feedback follows the drag and can be disabled with **Reduce motion**.
@@ -234,7 +263,7 @@ Automated validation does not replace testing contact, pressure, and the dial wi
 
 ## Projects, preferences, and limits
 
-- **`.patlas` v7** projects preserve pixels, layer groups, live group effects and hierarchy, opacity, visibility, alpha lock, DPI, blend modes, and organizational label colors. Versions v1–v6 are migrated when opened; older app versions cannot open v7.
+- **`.patlas` v8** projects preserve pixels, layer-owned drawing rulers, layer groups, live group effects and hierarchy, opacity, visibility, alpha lock, DPI, blend modes, and organizational label colors. Versions v1–v7 are migrated when opened; older app versions cannot open v8.
 - Per-document limits: **4096 × 4096 pixels**, up to **32 layers**, and **256 MiB** of pixel data. The memory limit may prevent reaching both the maximum dimensions and layer count at the same time.
 - History: up to **30 actions**, with a target budget of **128 MiB**. Older actions are removed when the budget is exceeded; at least one is retained. History belongs to each document's session and is not saved in the project.
 - DPI is print metadata and does not multiply the pixel count. Exported PNG files include resolution metadata.

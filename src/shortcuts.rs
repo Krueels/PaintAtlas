@@ -170,6 +170,14 @@ actions! {
     ZoomIn, "Canvas", "Aumentar zoom", 9, false, ["Ctrl+Plus", "Ctrl+Equals", "Ctrl+Shift+Plus", "Ctrl+Shift+Equals"];
     ZoomOut, "Canvas", "Diminuir zoom", 9, false, ["Ctrl+Minus", "Ctrl+Shift+Minus"];
     ResetZoom, "Canvas", "Zoom de 100%", 9, false, ["Ctrl+0"];
+    QuickShapeRegular, "QuickShape", "Formas regulares / rotação de 15°", 128, true, ["Shift"];
+    QuickShapeApply, "QuickShape", "Aplicar forma", 128, false, ["Enter"];
+    QuickShapeCancel, "QuickShape", "Restaurar traço original", 128, false, ["Escape"];
+    QuickShapeToggle, "QuickShape", "Ativar / desativar QuickShape", 1, false, [];
+    RulerTool, "Réguas", "Criar / editar réguas", 1, false, ["U"];
+    SnapRulers, "Réguas", "Ativar encaixe nas réguas", 1, false, ["Ctrl+2"];
+    ShowRulers, "Réguas", "Mostrar / ocultar réguas", 1, false, ["Ctrl+Shift+R"];
+    RulerAngleSnap, "Réguas", "Ângulos de 15° ao editar régua", 64, true, ["Shift"];
     TemporaryZoom, "Canvas", "Zoom temporário: arraste para aproximar/afastar", 15, true, ["Ctrl+Space"];
     Pan, "Canvas", "Mover vista enquanto segura", 15, true, ["Space"];
     BrushHud, "Pincel", "HUD: arraste para tamanho / opacidade", 17, true, ["Ctrl+Alt"];

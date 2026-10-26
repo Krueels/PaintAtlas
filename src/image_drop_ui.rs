@@ -96,7 +96,7 @@ impl PaintAtlas {
     }
     pub(super) fn image_drop_overlay(&mut self, ctx: &egui::Context) {
         let hovered = ctx.input(|i| !i.raw.hovered_files.is_empty());
-        if hovered {
+        if hovered && !self.references.drop_target(ctx) {
             let rect = self
                 .last_canvas_bounds
                 .unwrap_or(ctx.content_rect())

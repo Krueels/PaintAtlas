@@ -7,7 +7,8 @@ pub type StrokeTiles = std::collections::BTreeMap<(usize, usize), Vec<u8>>;
 
 pub const MAX_SIDE: u32 = 4096;
 const MAX_BYTES: usize = 256 * 1024 * 1024;
-const MAGIC: &[u8] = b"PAINTATLAS\x07";
+const MAGIC: &[u8] = b"PAINTATLAS\x08";
+const MAGIC_V7: &[u8] = b"PAINTATLAS\x07";
 const MAGIC_V6: &[u8] = b"PAINTATLAS\x06";
 const MAGIC_V5: &[u8] = b"PAINTATLAS\x05";
 const MAGIC_V4: &[u8] = b"PAINTATLAS\x04";
@@ -19,6 +20,7 @@ const MAGIC_V1: &[u8] = b"PAINTATLAS\x01";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Layer {
+    pub rulers: Vec<crate::rulers::Ruler>,
     pub effects: std::sync::Arc<Vec<crate::layer_groups::GroupEffect>>,
     pub group: Option<u64>,
     pub parent: Option<u64>,
@@ -45,6 +47,8 @@ pub struct Document {
     #[serde(skip)]
     pub dirty_tiles: std::collections::BTreeSet<(usize, usize)>,
     #[serde(skip)]
+    pub ruler_copies: Vec<crate::rulers::Transform>,
+    #[serde(skip)]
     pub stroke_tiles: std::cell::RefCell<Option<StrokeTiles>>,
 }
 
@@ -59,6 +63,7 @@ pub enum Tool {
     Ellipse,
     Hand,
     Zoom,
+    Ruler,
     SelectRect,
     Lasso,
 }
@@ -74,6 +79,7 @@ impl Tool {
             Self::Ellipse => "Elipse",
             Self::Hand => "Mover tela",
             Self::Zoom => "Zoom",
+            Self::Ruler => "Régua",
             Self::SelectRect => "Seleção retangular",
             Self::Lasso => "Laço de seleção",
         }
@@ -116,6 +122,7 @@ impl Document {
         let mut layers = Vec::new();
         if let Some(color) = paper {
             layers.push(Layer {
+                rulers: Default::default(),
                 effects: Default::default(),
                 group: None,
                 parent: None,
@@ -129,6 +136,7 @@ impl Document {
             });
         }
         layers.push(Layer {
+            rulers: Default::default(),
             effects: Default::default(),
             group: None,
             parent: None,
@@ -148,6 +156,7 @@ impl Document {
             selection: None,
             damage: None,
             dirty_tiles: Default::default(),
+            ruler_copies: Default::default(),
             stroke_tiles: Default::default(),
             layers,
         }
@@ -155,7 +164,11 @@ impl Document {
     pub fn bytes(&self) -> usize {
         self.layers
             .iter()
-            .map(|l| l.pixels.len() + l.effects.iter().map(|e| e.bytes()).sum::<usize>())
+            .map(|l| {
+                l.pixels.len()
+                    + l.rulers.len() * std::mem::size_of::<crate::rulers::Ruler>()
+                    + l.effects.iter().map(|e| e.bytes()).sum::<usize>()
+            })
             .sum()
     }
     pub fn can_add(&self) -> bool {
@@ -175,6 +188,7 @@ impl Document {
         self.layers.insert(
             self.active,
             Layer {
+                rulers: Default::default(),
                 effects: Default::default(),
                 group: None,
                 parent,
@@ -210,7 +224,86 @@ impl Document {
     pub fn contains(&self, p: [f32; 2]) -> bool {
         p[0] >= 0.0 && p[1] >= 0.0 && p[0] < self.width as f32 && p[1] < self.height as f32
     }
+    pub fn capture_stroke_tiles(&self) -> StrokeTiles {
+        let mut result = StrokeTiles::new();
+        if let Some(tiles) = self.stroke_tiles.borrow().as_ref() {
+            for &(ty, tx) in tiles.keys() {
+                let (x, y) = (tx * PAINT_TILE, ty * PAINT_TILE);
+                let w = PAINT_TILE.min(self.width as usize - x);
+                let h = PAINT_TILE.min(self.height as usize - y);
+                let mut bytes = Vec::with_capacity(w * h * 4);
+                for row in 0..h {
+                    let start = ((y + row) * self.width as usize + x) * 4;
+                    bytes.extend_from_slice(&self.layers[self.active].pixels[start..start + w * 4]);
+                }
+                result.insert((ty, tx), bytes);
+            }
+        }
+        result
+    }
+    pub fn write_stroke_tiles(&mut self, tiles: &StrokeTiles) {
+        for (&(ty, tx), bytes) in tiles {
+            let (x, y) = (tx * PAINT_TILE, ty * PAINT_TILE);
+            let w = PAINT_TILE.min(self.width as usize - x);
+            let h = PAINT_TILE.min(self.height as usize - y);
+            for row in 0..h {
+                let start = ((y + row) * self.width as usize + x) * 4;
+                self.layers[self.active].pixels[start..start + w * 4]
+                    .copy_from_slice(&bytes[row * w * 4..(row + 1) * w * 4]);
+            }
+        }
+    }
+    /// Restore the current stroke's cached tiles without ending its undo transaction.
+    pub fn restore_stroke_tiles(&mut self) {
+        if let Some(tiles) = self.stroke_tiles.get_mut() {
+            for (&(ty, tx), bytes) in tiles.iter() {
+                let (x, y) = (tx * PAINT_TILE, ty * PAINT_TILE);
+                let w = PAINT_TILE.min(self.width as usize - x);
+                let h = PAINT_TILE.min(self.height as usize - y);
+                for row in 0..h {
+                    let start = ((y + row) * self.width as usize + x) * 4;
+                    self.layers[self.active].pixels[start..start + w * 4]
+                        .copy_from_slice(&bytes[row * w * 4..(row + 1) * w * 4]);
+                }
+                self.dirty_tiles.insert((ty, tx));
+                let r = [x, y, x + w, y + h];
+                self.damage = Some(self.damage.map_or(r, |d| {
+                    [
+                        d[0].min(r[0]),
+                        d[1].min(r[1]),
+                        d[2].max(r[2]),
+                        d[3].max(r[3]),
+                    ]
+                }));
+            }
+        }
+    }
     pub fn stamp(&mut self, p: [f32; 2], brush: Brush, erase: bool) {
+        if self.ruler_copies.is_empty() {
+            self.stamp_oriented(p, brush, erase, crate::rulers::Transform::IDENTITY);
+        } else {
+            let mut centers = [[f32::INFINITY; 2]; 16];
+            for i in 0..self.ruler_copies.len() {
+                let transform = self.ruler_copies[i];
+                let center = transform.point(p);
+                if centers[..i]
+                    .iter()
+                    .any(|c| (c[0] - center[0]).hypot(c[1] - center[1]) < 0.001)
+                {
+                    continue;
+                }
+                centers[i] = center;
+                self.stamp_oriented(center, brush.clone(), erase, transform);
+            }
+        }
+    }
+    fn stamp_oriented(
+        &mut self,
+        p: [f32; 2],
+        brush: Brush,
+        erase: bool,
+        transform: crate::rulers::Transform,
+    ) {
         let radius = (brush.size * 0.5).max(0.5);
         let proportions = brush
             .tip
@@ -218,10 +311,19 @@ impl Document {
             .map_or([1.0, 1.0], |tip| tip.proportions());
         let half = [radius * proportions[0], radius * proportions[1]];
         let mask = brush.tip.as_ref().map(|tip| tip.mask(brush.size));
-        let x0 = ((p[0] - half[0] - 1.0).floor() as i32).max(0);
-        let y0 = ((p[1] - half[1] - 1.0).floor() as i32).max(0);
-        let x1 = ((p[0] + half[0] + 1.0).ceil() as i32).min(self.width as i32);
-        let y1 = ((p[1] + half[1] + 1.0).ceil() as i32).min(self.height as i32);
+        let m = transform.matrix;
+        let extent = if mask.is_some() {
+            [
+                m[0][0].abs() * half[0] + m[0][1].abs() * half[1],
+                m[1][0].abs() * half[0] + m[1][1].abs() * half[1],
+            ]
+        } else {
+            half
+        };
+        let x0 = ((p[0] - extent[0] - 1.0).floor() as i32).max(0);
+        let y0 = ((p[1] - extent[1] - 1.0).floor() as i32).max(0);
+        let x1 = ((p[0] + extent[0] + 1.0).ceil() as i32).min(self.width as i32);
+        let y1 = ((p[1] + extent[1] + 1.0).ceil() as i32).min(self.height as i32);
         if x1 > x0 && y1 > y0 {
             let r = [x0 as usize, y0 as usize, x1 as usize, y1 as usize];
             if self.damage.is_none() {
@@ -263,8 +365,10 @@ impl Document {
         for y in y0..y1 {
             for x in x0..x1 {
                 let coverage = if let Some(mask) = mask {
-                    let u = (x as f32 + 0.5 - p[0]) / (half[0] * 2.0) + 0.5;
-                    let v = (y as f32 + 0.5 - p[1]) / (half[1] * 2.0) + 0.5;
+                    let dx = x as f32 + 0.5 - p[0];
+                    let dy = y as f32 + 0.5 - p[1];
+                    let u = (m[0][0] * dx + m[1][0] * dy) / (half[0] * 2.0) + 0.5;
+                    let v = (m[0][1] * dx + m[1][1] * dy) / (half[1] * 2.0) + 0.5;
                     let alpha = mask.sample(u, v);
                     // Preserve the image silhouette; hardness adjusts the soft mask values.
                     alpha * (brush.hardness + (1.0 - brush.hardness) * alpha)
@@ -471,7 +575,9 @@ impl Document {
         }
         let expected = (self.width * self.height * 4) as usize;
         if self.layers.iter().any(|l| {
-            l.pixels.len() != expected
+            l.rulers.len() > 8
+                || l.rulers.iter().any(|r| !r.valid())
+                || l.pixels.len() != expected
                 || !l.opacity.is_finite()
                 || !(0.0..=1.0).contains(&l.opacity)
                 || l.name.len() > 1024
@@ -500,6 +606,39 @@ impl Document {
             options
                 .deserialize(&data[MAGIC.len()..])
                 .map_err(|e| e.to_string())?
+        } else if data.starts_with(MAGIC_V7) {
+            let old: LegacyDocumentV7 = options
+                .deserialize(&data[MAGIC_V7.len()..])
+                .map_err(|e| e.to_string())?;
+            let layers = old
+                .layers
+                .into_iter()
+                .map(|l| Layer {
+                    rulers: Vec::new(),
+                    effects: l.effects,
+                    group: l.group,
+                    parent: l.parent,
+                    label_color: l.label_color,
+                    blend_mode: l.blend_mode,
+                    name: l.name,
+                    visible: l.visible,
+                    opacity: l.opacity,
+                    pixels: l.pixels,
+                    alpha_lock: l.alpha_lock,
+                })
+                .collect();
+            Self {
+                width: old.width,
+                height: old.height,
+                dpi: old.dpi,
+                active: old.active,
+                layers,
+                selection: None,
+                damage: None,
+                dirty_tiles: Default::default(),
+                ruler_copies: Vec::new(),
+                stroke_tiles: Default::default(),
+            }
         } else if data.starts_with(MAGIC_V6) {
             let old: LegacyDocumentV6 = options
                 .deserialize(&data[MAGIC_V6.len()..])
@@ -513,6 +652,7 @@ impl Document {
                     .layers
                     .into_iter()
                     .map(|l| Layer {
+                        rulers: Default::default(),
                         effects: Default::default(),
                         group: l.group,
                         parent: l.parent,
@@ -528,6 +668,7 @@ impl Document {
                 selection: None,
                 damage: None,
                 dirty_tiles: Default::default(),
+                ruler_copies: Default::default(),
                 stroke_tiles: Default::default(),
             }
         } else if data.starts_with(MAGIC_V5) {
@@ -543,6 +684,7 @@ impl Document {
                     .layers
                     .into_iter()
                     .map(|l| Layer {
+                        rulers: Default::default(),
                         effects: Default::default(),
                         group: None,
                         parent: None,
@@ -558,6 +700,7 @@ impl Document {
                 selection: None,
                 damage: None,
                 dirty_tiles: Default::default(),
+                ruler_copies: Default::default(),
                 stroke_tiles: Default::default(),
             }
         } else if data.starts_with(MAGIC_V4) {
@@ -572,6 +715,7 @@ impl Document {
                     .layers
                     .into_iter()
                     .map(|l| Layer {
+                        rulers: Default::default(),
                         effects: Default::default(),
                         group: None,
                         parent: None,
@@ -588,6 +732,7 @@ impl Document {
                 selection: None,
                 damage: None,
                 dirty_tiles: Default::default(),
+                ruler_copies: Default::default(),
                 stroke_tiles: Default::default(),
             }
         } else if data.starts_with(MAGIC_V3) {
@@ -603,6 +748,7 @@ impl Document {
                 selection: None,
                 damage: None,
                 dirty_tiles: Default::default(),
+                ruler_copies: Default::default(),
                 stroke_tiles: Default::default(),
             }
         } else if data.starts_with(MAGIC_V2) {
@@ -618,6 +764,7 @@ impl Document {
                 selection: None,
                 damage: None,
                 dirty_tiles: Default::default(),
+                ruler_copies: Default::default(),
                 stroke_tiles: Default::default(),
             }
         } else if data.starts_with(MAGIC_V1) {
@@ -632,11 +779,13 @@ impl Document {
                 selection: None,
                 damage: None,
                 dirty_tiles: Default::default(),
+                ruler_copies: Default::default(),
                 stroke_tiles: Default::default(),
                 layers: old
                     .layers
                     .into_iter()
                     .map(|l| Layer {
+                        rulers: Default::default(),
                         effects: Default::default(),
                         group: None,
                         parent: None,
@@ -695,6 +844,28 @@ impl Document {
         }
         atomic_write(path, &bytes)
     }
+}
+#[derive(Serialize, Deserialize)]
+struct LegacyLayerV7 {
+    pub effects: std::sync::Arc<Vec<crate::layer_groups::GroupEffect>>,
+    pub group: Option<u64>,
+    pub parent: Option<u64>,
+    pub label_color: Option<[u8; 3]>,
+    pub blend_mode: crate::blend::BlendMode,
+    pub name: String,
+    pub visible: bool,
+    pub opacity: f32,
+    pub pixels: Vec<u8>,
+    pub alpha_lock: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LegacyDocumentV7 {
+    width: u32,
+    height: u32,
+    dpi: u32,
+    layers: Vec<LegacyLayerV7>,
+    active: usize,
 }
 #[derive(Serialize, Deserialize)]
 struct LegacyLayerV6 {
@@ -762,6 +933,7 @@ struct LegacyLayerV3 {
 impl From<LegacyLayerV3> for Layer {
     fn from(l: LegacyLayerV3) -> Self {
         Self {
+            rulers: Default::default(),
             effects: Default::default(),
             group: None,
             parent: None,
@@ -1030,6 +1202,51 @@ mod tests {
         let p = dir.path().join("locked.patlas");
         d.save(&p).unwrap();
         assert!(Document::open(&p).unwrap().layers[0].alpha_lock);
+    }
+    #[test]
+    fn ruler_project_roundtrip_and_v7_migration_preserve_artwork() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rulers.patlas");
+        let mut doc = Document::new(16, 16, false);
+        doc.layers[0].pixels[3] = 211;
+        doc.layers[0].rulers.push(crate::rulers::Ruler::new(
+            crate::rulers::Kind::Perspective3,
+            16,
+            16,
+        ));
+        doc.save(&path).unwrap();
+        let loaded = Document::open(&path).unwrap();
+        assert_eq!(loaded.layers[0].rulers, doc.layers[0].rulers);
+        assert_eq!(loaded.layers[0].pixels, doc.layers[0].pixels);
+        let l = &doc.layers[0];
+        let old = LegacyDocumentV7 {
+            width: 16,
+            height: 16,
+            dpi: 300,
+            active: 0,
+            layers: vec![LegacyLayerV7 {
+                effects: l.effects.clone(),
+                group: l.group,
+                parent: l.parent,
+                label_color: Some([10, 20, 30]),
+                blend_mode: l.blend_mode,
+                name: l.name.clone(),
+                visible: true,
+                opacity: l.opacity,
+                pixels: l.pixels.clone(),
+                alpha_lock: true,
+            }],
+        };
+        let mut bytes = MAGIC_V7.to_vec();
+        bytes.extend(bincode::DefaultOptions::new().serialize(&old).unwrap());
+        std::fs::write(&path, bytes).unwrap();
+        let loaded = Document::open(&path).unwrap();
+        assert!(loaded.layers[0].rulers.is_empty());
+        assert_eq!(loaded.layers[0].pixels, doc.layers[0].pixels);
+        assert!(loaded.layers[0].alpha_lock);
+        assert_eq!(loaded.layers[0].label_color, Some([10, 20, 30]));
+        doc.layers[0].rulers[0].origin[0] = f32::NAN;
+        assert!(doc.save(&path).is_err());
     }
     #[test]
     fn legacy_projects_migrate_without_losing_pixels() {

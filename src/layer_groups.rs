@@ -218,6 +218,7 @@ impl Document {
             !take
         });
         let group = Layer {
+            rulers: Default::default(),
             effects: Default::default(),
             group: Some(id),
             parent,
