@@ -5,19 +5,19 @@ edition = "2024"
 description = "Cross-platform raster drawing studio"
 
 [dependencies]
-eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wgpu"] }
-egui-wgpu = { version = "0.33", default-features = true }
-rfd = "0.15"
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wgpu"] }
+egui-wgpu = { version = "0.37", default-features = true }
+rfd = "0.17"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
-resvg = { version = "0.45", default-features = false, features = ["raster-images"] }
+resvg = { version = "0.48", default-features = false, features = ["raster-images"] }
 png = "0.18"
-base64 = "0.22"
+base64 = "0.23"
 url = "2.5"
 percent-encoding = "2.3"
 arboard = "3.7"
 serde_json = "1"
 serde = { version = "1", features = ["derive", "rc"] }
-bincode = "1.3"
+bincode = "3.0"
 tempfile = "3"
 egui_dock = { version = "0.18", path = "vendor/egui_dock", features = ["serde"] }
 
