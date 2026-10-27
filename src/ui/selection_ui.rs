@@ -218,7 +218,7 @@ impl PaintAtlas {
                 }
             }
             if bounds[2] == 0 {
-                self.status = "A camada ativa está vazia; não há conteúdo para transformar.".into();
+                self.status = "The active layer is empty; there is no content to transform.".into();
                 return;
             }
             match Mask::try_rectangle(
@@ -232,7 +232,7 @@ impl PaintAtlas {
                 Ok(Some(mask)) => Arc::new(mask),
                 Ok(None) => return,
                 Err(error) => {
-                    self.status = format!("Não foi possível preparar a seleção: {error}");
+                    self.status = format!("Could not prepare the selection: {error}");
                     return;
                 }
             }
@@ -250,14 +250,12 @@ impl PaintAtlas {
                 match self.start_floating(ctx, floating) {
                     Ok(()) => {
                         self.status = format!(
-                            "Arraste para mover; use as alças para redimensionar ou girar. {} aplica; {} cancela.",
+                            "Drag to move; use handles to resize or rotate. {} applies; {} cancels.",
                             self.settings.shortcuts.label(Shortcut::Apply),
                             self.settings.shortcuts.label(Shortcut::Cancel)
                         );
                     }
-                    Err(error) => {
-                        self.status = format!("Não foi possível preparar a prévia: {error}")
-                    }
+                    Err(error) => self.status = format!("Could not prepare the preview: {error}"),
                 }
             }
             Err(e) => self.status = e,
@@ -302,7 +300,7 @@ impl PaintAtlas {
         self.selection.floating = None;
         self.selection.textures = None;
         self.selection.drag = None;
-        self.status = "Transformação cancelada; o desenho original foi preservado.".into();
+        self.status = "Transform canceled; the original drawing was preserved.".into();
     }
     pub(super) fn apply_transform(&mut self) {
         self.clipboard_motion.cancel_flight();
@@ -313,7 +311,7 @@ impl PaintAtlas {
             .is_some_and(|f| f.new_layer)
             && !self.doc.can_add()
         {
-            self.status = "Limite de camadas ou de memória atingido.".into();
+            self.status = "Layer or memory limit reached.".into();
             return;
         }
         let Some(floating) = self.selection.floating.take() else {
@@ -321,14 +319,14 @@ impl PaintAtlas {
         };
         if floating.unchanged() {
             self.cancel_transform();
-            self.status = "Transformação sem alterações.".into();
+            self.status = "Transform has no changes.".into();
             return;
         }
         let (pixels, mask) = match floating.rasterize(self.doc.width, self.doc.height) {
             Ok(result) => result,
             Err(error) => {
                 self.selection.floating = Some(floating);
-                self.status = format!("Não foi possível aplicar a transformação: {error}");
+                self.status = format!("Could not apply the transform: {error}");
                 return;
             }
         };
@@ -337,7 +335,7 @@ impl PaintAtlas {
         {
             self.selection.floating = Some(floating);
             self.status = format!(
-                "A imagem está fora do canvas. Mova-a para dentro ou use {} para cancelar.",
+                "The image is outside the canvas. Move it inside or use {} to cancel.",
                 self.settings.shortcuts.label(Shortcut::Cancel)
             );
             return;
@@ -350,7 +348,7 @@ impl PaintAtlas {
             self.doc.layers[self.doc.active].name = floating
                 .name
                 .clone()
-                .unwrap_or_else(|| "Image colada".into());
+                .unwrap_or_else(|| "Image pasted".into());
             self.rename = self.doc.layers[self.doc.active].name.clone();
         }
         if !floating.new_layer && self.doc.layers[floating.layer].group.is_some() {
@@ -375,11 +373,11 @@ impl PaintAtlas {
         self.doc.selection = self.selection.mask.clone();
         self.changed();
         self.status = format!(
-            "{} · {} desfaz.",
+            "{} · {} undoes.",
             if floating.new_layer {
-                "Image colada em nova camada"
+                "Image pasted into a new layer"
             } else {
-                "Transformação aplicada"
+                "Transform applied"
             },
             self.settings.shortcuts.label(Shortcut::Undo)
         );
@@ -389,11 +387,11 @@ impl PaintAtlas {
             return;
         };
         if self.doc.layers[self.doc.active].alpha_lock {
-            self.status = "Desative Bloquear transparência para apagar a seleção.".into();
+            self.status = "Disable Lock transparency to delete the selection.".into();
             return;
         }
         if !self.doc.layers[self.doc.active].visible {
-            self.status = "Ative a visibilidade da camada para editar.".into();
+            self.status = "Make the layer visible to edit.".into();
             return;
         }
         self.checkpoint();
@@ -510,9 +508,7 @@ impl PaintAtlas {
                         self.selection.mask = mask.map(Arc::new);
                         self.doc.selection = self.selection.mask.clone();
                     }
-                    Err(error) => {
-                        self.status = format!("Não foi possível selecionar tudo: {error}")
-                    }
+                    Err(error) => self.status = format!("Could not select all: {error}"),
                 }
             }
             4 => self.begin_transform(ctx, false),
@@ -697,7 +693,7 @@ impl PaintAtlas {
             let mask = match mask {
                 Ok(mask) => mask,
                 Err(error) => {
-                    self.status = format!("Não foi possível criar a seleção: {error}");
+                    self.status = format!("Could not create the selection: {error}");
                     return true;
                 }
             };
@@ -707,12 +703,12 @@ impl PaintAtlas {
                     self.doc.selection = self.selection.mask.clone();
                 }
                 Err(error) => {
-                    self.status = format!("Não foi possível combinar a seleção: {error}");
+                    self.status = format!("Could not combine the selection: {error}");
                     return true;
                 }
             }
             self.status = format!(
-                "Seleção pronta · {} transforma · {} desmarca · {} apaga.",
+                "Selection ready · {} transforms · {} deselects · {} deletes.",
                 self.settings.shortcuts.label(Shortcut::Transform),
                 self.settings.shortcuts.label(Shortcut::Deselect),
                 self.settings.shortcuts.label(Shortcut::DeleteSelection)
@@ -762,36 +758,54 @@ impl PaintAtlas {
         }
     }
     pub(super) fn selection_properties(&mut self, ui: &mut egui::Ui) {
-        ui.label("Modo de seleção");
+        ui.label(crate::i18n::ui(ui.ctx(), "Selection mode"));
         ui.horizontal_wrapped(|ui| {
-            ui.selectable_value(&mut self.selection.mode, Combine::Replace, "Nova");
-            ui.selectable_value(&mut self.selection.mode, Combine::Add, "Adicionar");
-            ui.selectable_value(&mut self.selection.mode, Combine::Subtract, "Subtrair");
+            ui.selectable_value(
+                &mut self.selection.mode,
+                Combine::Replace,
+                crate::i18n::ui(ui.ctx(), "New"),
+            );
+            ui.selectable_value(
+                &mut self.selection.mode,
+                Combine::Add,
+                crate::i18n::ui(ui.ctx(), "Add"),
+            );
+            ui.selectable_value(
+                &mut self.selection.mode,
+                Combine::Subtract,
+                crate::i18n::ui(ui.ctx(), "Subtract"),
+            );
         });
         crate::theme::caption(
             ui,
-            format!(
-                "{}: retângulo · {}: laço\n{} adiciona · {} subtrai\n{} transforma · {} desmarca\n{}: mover vista · Roda: zoom",
-                self.settings.shortcuts.label(Shortcut::SelectRect),
-                self.settings.shortcuts.label(Shortcut::Lasso),
-                self.settings.shortcuts.label(Shortcut::SelectionAdd),
-                self.settings.shortcuts.label(Shortcut::SelectionSubtract),
-                self.settings.shortcuts.label(Shortcut::Transform),
-                self.settings.shortcuts.label(Shortcut::Deselect),
-                self.settings.shortcuts.label(Shortcut::Pan)
+            crate::i18n::ui(
+                ui.ctx(),
+                format!(
+                    "{}: rectangle · {}: lasso\n{} adds · {} subtracts\n{} transforms · {} deselects\n{}: pan view · Wheel: zoom",
+                    self.settings.shortcuts.label(Shortcut::SelectRect),
+                    self.settings.shortcuts.label(Shortcut::Lasso),
+                    self.settings.shortcuts.label(Shortcut::SelectionAdd),
+                    self.settings.shortcuts.label(Shortcut::SelectionSubtract),
+                    self.settings.shortcuts.label(Shortcut::Transform),
+                    self.settings.shortcuts.label(Shortcut::Deselect),
+                    self.settings.shortcuts.label(Shortcut::Pan)
+                ),
             ),
         );
         ui.checkbox(
             &mut self.selection.keep_ratio,
-            "Manter proporção nos cantos",
+            crate::i18n::ui(ui.ctx(), "Constrain proportions at corners"),
         );
         crate::theme::caption(
             ui,
-            format!(
-                "Ao mover, {} restringe a direção a 45°. Arraste fora das alças para girar. {} encaixa a rotação em 15°. Nas alças, {} alterna a proporção; as laterais permitem esticar.",
-                self.settings.shortcuts.label(Shortcut::ConstrainMove),
-                self.settings.shortcuts.label(Shortcut::RotationSnap),
-                self.settings.shortcuts.label(Shortcut::Proportion)
+            crate::i18n::ui(
+                ui.ctx(),
+                format!(
+                    "When moving, {} constrains direction to 45°. Drag outside handles to rotate. {} snaps rotation to 15°. At handles, {} toggles aspect ratio; side handles allow stretching.",
+                    self.settings.shortcuts.label(Shortcut::ConstrainMove),
+                    self.settings.shortcuts.label(Shortcut::RotationSnap),
+                    self.settings.shortcuts.label(Shortcut::Proportion)
+                ),
             ),
         );
     }
@@ -977,68 +991,78 @@ impl PaintAtlas {
                     ui.set_width((width - 20.0).max(100.0));
                     ui.horizontal_wrapped(|ui| {
                         if transforming {
-                            if crate::theme::button(ui, "Aplicar").clicked() {
+                            if crate::theme::button(ui, "Apply").clicked() {
                                 action = 1;
                             }
-                            if crate::theme::button(ui, "Cancelar").clicked() {
+                            if crate::theme::button(ui, "Cancel").clicked() {
                                 action = 2;
                             }
-                            if crate::theme::button(ui, "↔ Espelhar").clicked() {
+                            if crate::theme::button(ui, "↔ Flip").clicked() {
                                 action = 3;
                             }
-                            if crate::theme::button(ui, "↕ Espelhar").clicked() {
+                            if crate::theme::button(ui, "↕ Flip").clicked() {
                                 action = 4;
                             }
-                            if crate::theme::button(ui, "Restaurar").clicked() {
+                            if crate::theme::button(ui, "Reset").clicked() {
                                 action = 5;
                             }
                         } else {
-                            if crate::theme::button(ui, "Mover / transformar").clicked() {
+                            if crate::theme::button(ui, "Move / transform").clicked() {
                                 action = 6;
                             }
                             if ui
-                                .button("Duplicar recorte")
-                                .on_hover_text(
-                                    "Mantém o original e transforma uma cópia na mesma camada",
-                                )
+                                .button(crate::i18n::ui(ui.ctx(), "Duplicate selection"))
+                                .on_hover_text(crate::i18n::ui(
+                                    ui.ctx(),
+                                    "Keeps the original and transforms a copy on the same layer",
+                                ))
                                 .clicked()
                             {
                                 action = 7;
                             }
-                            if crate::theme::button(ui, "Inverter").clicked() {
+                            if crate::theme::button(ui, "Invert").clicked() {
                                 action = 8;
                             }
-                            if crate::theme::button(ui, "Apagar").clicked() {
+                            if crate::theme::button(ui, "Delete").clicked() {
                                 action = 9;
                             }
-                            if crate::theme::button(ui, "Desmarcar").clicked() {
+                            if crate::theme::button(ui, "Deselect").clicked() {
                                 action = 10;
                             }
                         }
                     });
                     if let Some(f) = &self.selection.floating {
                         ui.horizontal_wrapped(|ui| {
-                            ui.checkbox(&mut self.selection.keep_ratio, "Proporção nos cantos");
+                            ui.checkbox(
+                                &mut self.selection.keep_ratio,
+                                crate::i18n::ui(ui.ctx(), "Corner aspect ratio"),
+                            );
                             crate::theme::caption(
                                 ui,
-                                format!(
-                                    "{:.0} × {:.0} px · {:.1}° · {} aplica · {} cancela",
-                                    f.bounds.width(),
-                                    f.bounds.height(),
-                                    f.angle.to_degrees(),
-                                    self.settings.shortcuts.label(Shortcut::Apply),
-                                    self.settings.shortcuts.label(Shortcut::Cancel)
+                                crate::i18n::ui(
+                                    ui.ctx(),
+                                    format!(
+                                        "{:.0} × {:.0} px · {:.1}° · {} applies · {} cancels",
+                                        f.bounds.width(),
+                                        f.bounds.height(),
+                                        f.angle.to_degrees(),
+                                        self.settings.shortcuts.label(Shortcut::Apply),
+                                        self.settings.shortcuts.label(Shortcut::Cancel)
+                                    ),
                                 ),
                             );
                         });
                     } else {
                         crate::theme::caption(
                             ui,
-                            format!(
-                                "Camada ativa · {} adiciona · {} subtrai · {} transforma",
-                                self.settings.shortcuts.label(Shortcut::SelectionAdd),
-                                self.settings.shortcuts.label(Shortcut::SelectionSubtract),
-                                self.settings.shortcuts.label(Shortcut::Transform)
+                            crate::i18n::ui(
+                                ui.ctx(),
+                                format!(
+                                    "Active layer · {} adds · {} subtracts · {} transforms",
+                                    self.settings.shortcuts.label(Shortcut::SelectionAdd),
+                                    self.settings.shortcuts.label(Shortcut::SelectionSubtract),
+                                    self.settings.shortcuts.label(Shortcut::Transform)
+                                ),
                             ),
                         );
                     }
@@ -1074,7 +1098,7 @@ impl PaintAtlas {
                     self.doc.selection = self.selection.mask.clone();
                 }
                 Some(Err(error)) => {
-                    self.status = format!("Não foi possível inverter a seleção: {error}")
+                    self.status = format!("Could not invert the selection: {error}")
                 }
                 None => {}
             },

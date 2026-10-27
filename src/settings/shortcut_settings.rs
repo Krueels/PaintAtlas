@@ -20,58 +20,60 @@ impl Editor {
     pub fn capturing(&self) -> bool {
         self.capture.is_some()
     }
+    fn categories() -> Vec<&'static str> {
+        let mut categories = Vec::new();
+        for action in Action::ALL {
+            if !categories.contains(&action.category()) {
+                categories.push(action.category());
+            }
+        }
+        categories
+    }
     pub fn show(&mut self, ui: &mut egui::Ui, shortcuts: &mut Shortcuts) -> bool {
         let mut changed = self.capture_ui(ui.ctx(), shortcuts);
-        ui.heading("Atalhos de teclado");
+        let categories = Self::categories();
+        ui.heading(crate::i18n::ui(ui.ctx(), "Keyboard shortcuts"));
         crate::theme::caption(
             ui,
-            "Clique em uma combinação e pressione o novo atalho. Alterações são aplicadas e salvas automaticamente.",
+            crate::i18n::ui(
+                ui.ctx(),
+                "Click a binding and press the new shortcut. Changes are applied and saved automatically.",
+            ),
         );
         ui.horizontal_wrapped(|ui| {
-            ui.label("Buscar");
+            ui.label(crate::i18n::ui(ui.ctx(), "Search"));
             ui.add(egui::TextEdit::singleline(&mut self.search).desired_width(160.0));
             egui::ComboBox::from_id_salt("shortcut_category")
-                .selected_text(if self.category.is_empty() {
-                    "Todas as categorias"
-                } else {
-                    &self.category
-                })
+                .selected_text(crate::i18n::ui(
+                    ui.ctx(),
+                    if self.category.is_empty() {
+                        "All categories"
+                    } else {
+                        &self.category
+                    },
+                ))
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.category, String::new(), "Todas as categorias");
-                    for category in [
-                        "File",
-                        "Image",
-                        "Filters",
-                        "Camadas",
-                        "Edição",
-                        "Ferramentas",
-                        "Pincel",
-                        "Canvas",
-                        "Seleção",
-                        "Transformação",
-                    ] {
-                        ui.selectable_value(&mut self.category, category.into(), category);
+                    ui.selectable_value(
+                        &mut self.category,
+                        String::new(),
+                        crate::i18n::ui(ui.ctx(), "All categories"),
+                    );
+                    for &category in &categories {
+                        ui.selectable_value(
+                            &mut self.category,
+                            category.into(),
+                            crate::i18n::ui(ui.ctx(), category),
+                        );
                     }
                 });
         });
-        if crate::theme::button(ui, "Restaurar todos os atalhos padrão").clicked() {
+        if crate::theme::button(ui, "Restore all default shortcuts").clicked() {
             shortcuts.0.clear();
             changed = true;
         }
         ui.separator();
         let search = self.search.to_lowercase();
-        for category in [
-            "File",
-            "Image",
-            "Filters",
-            "Camadas",
-            "Edição",
-            "Ferramentas",
-            "Pincel",
-            "Canvas",
-            "Seleção",
-            "Transformação",
-        ] {
+        for &category in &categories {
             if !self.category.is_empty() && self.category != category {
                 continue;
             }
@@ -81,29 +83,42 @@ impl Editor {
                 .filter(|a| {
                     a.category() == category
                         && (search.is_empty()
-                            || format!("{} {} {}", a.category(), a.label(), shortcuts.label(*a))
-                                .to_lowercase()
-                                .contains(&search))
+                            || format!(
+                                "{} {} {} {} {}",
+                                a.category(),
+                                a.label(),
+                                crate::i18n::ui(ui.ctx(), a.category()),
+                                crate::i18n::ui(ui.ctx(), a.label()),
+                                shortcuts.label(*a)
+                            )
+                            .to_lowercase()
+                            .contains(&search))
                 })
                 .collect();
             if actions.is_empty() {
                 continue;
             }
-            egui::CollapsingHeader::new(category)
+            egui::CollapsingHeader::new(crate::i18n::ui(ui.ctx(), category))
                 .default_open(true)
                 .show(ui, |ui| {
                     for action in actions {
                         ui.push_id(action.id(), |ui| {
-                            ui.label(egui::RichText::new(action.label()).strong());
+                            ui.label(
+                                egui::RichText::new(crate::i18n::ui(ui.ctx(), action.label()))
+                                    .strong(),
+                            );
                             ui.horizontal_wrapped(|ui| {
                                 let list = shortcuts.bindings(action).to_vec();
                                 if list.is_empty() {
-                                    crate::theme::caption(ui, "Sem atalho");
+                                    crate::theme::caption(
+                                        ui,
+                                        crate::i18n::ui(ui.ctx(), "No shortcut"),
+                                    );
                                 }
                                 for (slot, binding) in list.iter().enumerate() {
                                     if ui
-                                        .button(binding.label())
-                                        .on_hover_text("Alterar combinação")
+                                        .button(crate::i18n::ui(ui.ctx(), binding.label()))
+                                        .on_hover_text(crate::i18n::ui(ui.ctx(), "Change binding"))
                                         .clicked()
                                     {
                                         self.capture = Some(Capture {
@@ -115,7 +130,10 @@ impl Editor {
                                     }
                                     if ui
                                         .small_button("×")
-                                        .on_hover_text("Remover este atalho")
+                                        .on_hover_text(crate::i18n::ui(
+                                            ui.ctx(),
+                                            "Remove this shortcut",
+                                        ))
                                         .clicked()
                                     {
                                         let mut list = shortcuts.bindings(action).to_vec();
@@ -125,7 +143,10 @@ impl Editor {
                                         break;
                                     }
                                 }
-                                if ui.small_button("+ Atalho").clicked() {
+                                if ui
+                                    .small_button(crate::i18n::ui(ui.ctx(), "+ Shortcut"))
+                                    .clicked()
+                                {
                                     self.capture = Some(Capture {
                                         action,
                                         slot: shortcuts.bindings(action).len(),
@@ -133,13 +154,19 @@ impl Editor {
                                         last_modifiers: egui::Modifiers::NONE,
                                     });
                                 }
-                                if ui.small_button("Restaurar").clicked() {
+                                if ui
+                                    .small_button(crate::i18n::ui(ui.ctx(), "Reset"))
+                                    .clicked()
+                                {
                                     shortcuts.restore(action);
                                     changed = true;
                                 }
                             });
                             if action.is_held() {
-                                crate::theme::caption(ui, "Manter pressionado durante o gesto");
+                                crate::theme::caption(
+                                    ui,
+                                    crate::i18n::ui(ui.ctx(), "Hold during the gesture"),
+                                );
                             }
                             ui.add_space(5.0);
                         });
@@ -185,25 +212,25 @@ impl Editor {
         let mut close = false;
         let mut changed = false;
         egui::Modal::new(egui::Id::new("shortcut_capture")).show(ctx, |ui| {
-            ui.heading("Definir atalho");
-            ui.label(capture.action.label());
-            crate::theme::caption(ui, if capture.action.is_held() {
-                "Pressione uma tecla ou apenas Ctrl, Alt ou Shift. Depois clique em Usar atalho."
-            } else { "Pressione a combinação desejada. Escape também pode ser configurado; para sair, clique em Cancelar." });
+            ui.heading(crate::i18n::ui(ui.ctx(), "Set shortcut"));
+            ui.label(crate::i18n::ui(ui.ctx(), capture.action.label()));
+            crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), if capture.action.is_held() {
+                "Press a key or just Ctrl, Alt, or Shift. Then click Use shortcut."
+            } else { "Press the desired shortcut. Escape can also be assigned; to leave, click Cancel." }));
             if let Some(binding) = &capture.candidate {
-                ui.label(egui::RichText::new(binding.label()).size(22.0));
+                ui.label(egui::RichText::new(crate::i18n::ui(ui.ctx(), binding.label())).size(22.0));
                 let conflicts = shortcuts.conflicts(capture.action, binding);
                 if !conflicts.is_empty() {
                     ui.colored_label(ui.visuals().warn_fg_color,
-                        format!("Já usado por: {}", conflicts.iter().map(|a| a.label()).collect::<Vec<_>>().join(", ")));
-                    crate::theme::caption(ui, "Substituir remove esta combinação das ações em conflito.");
+                        crate::i18n::ui(ui.ctx(), format!("Already used by: {}", conflicts.iter().map(|a| a.label()).collect::<Vec<_>>().join(", "))));
+                    crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), "Replace removes this binding from the conflicting actions."));
                 }
-                if ui.button(if conflicts.is_empty() { "Usar atalho" } else { "Substituir conflitos e usar" }).clicked() {
+                if ui.button(crate::i18n::ui(ui.ctx(), if conflicts.is_empty() { "Use shortcut" } else { "Replace conflicts and use" })).clicked() {
                     changed = shortcuts.assign(capture.action, capture.slot, binding.clone(), true);
                     close = changed;
                 }
-            } else { ui.label("Aguardando tecla…"); }
-            if ui.button("Cancelar").clicked() { close = true; }
+            } else { ui.label(crate::i18n::ui(ui.ctx(), "Waiting for a key…")); }
+            if ui.button(crate::i18n::ui(ui.ctx(), "Cancel")).clicked() { close = true; }
         });
         if close {
             self.capture = None;
@@ -302,5 +329,21 @@ mod tests {
         );
         assert_eq!(shortcuts.label(Action::Brush), "B");
         assert!(editor.capturing());
+    }
+}
+
+#[cfg(test)]
+mod localization_tests {
+    use super::*;
+    #[test]
+    fn every_shortcut_category_is_available_including_rulers_and_quickshape() {
+        let categories = Editor::categories();
+        assert!(categories.contains(&"Rulers"));
+        assert!(categories.contains(&"QuickShape"));
+        assert!(
+            Action::ALL
+                .iter()
+                .all(|a| categories.contains(&a.category()))
+        );
     }
 }

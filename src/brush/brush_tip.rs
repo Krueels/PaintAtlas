@@ -63,7 +63,7 @@ impl BrushTip {
             };
         }
         if !gray.pixels().any(|p| p[0] > 0) {
-            return Err("A imagem não contém uma ponta visível.".into());
+            return Err("The image does not contain a visible brush tip.".into());
         }
         let largest = gray.width().max(gray.height());
         if largest > 512 {
@@ -126,7 +126,7 @@ impl BrushTip {
         let mut pixels = Vec::new();
         pixels
             .try_reserve_exact(m.alpha.len())
-            .map_err(|e| format!("Não foi possível alocar a miniatura da ponta: {e}"))?;
+            .map_err(|e| format!("Could not allocate the brush-tip thumbnail: {e}"))?;
         for &a in &m.alpha {
             let c = 255 - a;
             pixels.push(eframe::egui::Color32::from_rgb(c, c, c));
@@ -271,7 +271,7 @@ impl Library {
         self.entries
             .iter()
             .find(|e| e.id == id)
-            .map_or("Ponta indisponível", |e| e.name.as_str())
+            .map_or("Brush tip unavailable", |e| e.name.as_str())
     }
     pub fn get(&mut self, id: &str) -> Result<Arc<BrushTip>, String> {
         if let Some(result) = self.cache.get(id) {
@@ -282,7 +282,7 @@ impl Library {
             .iter()
             .find(|e| e.id == id)
             .map(|e| e.path.clone())
-            .ok_or("File da ponta não encontrado.")?;
+            .ok_or("Brush-tip file not found.")?;
         let result = BrushTip::load(&path).map(Arc::new);
         self.cache.insert(id.into(), result.clone());
         result
@@ -330,10 +330,10 @@ impl Library {
             .alpha
             .len()
             .checked_mul(4)
-            .ok_or("Ponta de pincel muito grande.")?;
+            .ok_or("The brush tip is too large.")?;
         let mut rgba = Vec::new();
         rgba.try_reserve_exact(rgba_len)
-            .map_err(|e| format!("Não foi possível alocar a ponta de pincel: {e}"))?;
+            .map_err(|e| format!("Could not allocate the brush tip: {e}"))?;
         for &a in &mask.alpha {
             rgba.extend_from_slice(&[0, 0, 0, a]);
         }
@@ -348,7 +348,7 @@ impl Library {
         let id = format!("user:{}", path.file_name().unwrap().to_string_lossy());
         self.entries.push(Entry {
             id: id.clone(),
-            name: format!("{stem} (importado)"),
+            name: format!("{stem} (imported)"),
             path,
         });
         self.cache.insert(id.clone(), Ok(Arc::new(tip)));

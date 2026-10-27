@@ -1,3 +1,7 @@
+#[path = "source_translations.rs"]
+mod source_translations;
+pub use source_translations::{set_language, source, ui, widget};
+
 use serde::{Deserialize, Serialize};
 
 /// Languages supported by the application.

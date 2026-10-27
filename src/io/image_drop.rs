@@ -27,12 +27,12 @@ impl Source {
         if text.starts_with("data:image/") {
             return Ok(Self::Data(text.into()));
         }
-        let url = url::Url::parse(text).map_err(|_| "Endereço de imagem inválido.".to_owned())?;
+        let url = url::Url::parse(text).map_err(|_| "Invalid image address.".to_owned())?;
         match url.scheme() {
             "http" | "https" if url.host_str().is_some() => Ok(Self::Remote(url.into())),
-            "file" => url.to_file_path().map(Self::File).map_err(|_| "File local inválido.".into()),
-            "blob" => Err("O navegador não disponibilizou os pixels desta imagem temporária. Use Copiar imagem e cole no canvas.".into()),
-            _ => Err("Arraste uma imagem ou seu endereço HTTP/HTTPS, não um link de página.".into()),
+            "file" => url.to_file_path().map(Self::File).map_err(|_| "Invalid local file.".into()),
+            "blob" => Err("The browser did not provide pixels for this temporary image. Choose Copy image and paste into the canvas.".into()),
+            _ => Err("Drag an image or its HTTP/HTTPS address, not a link to a web page.".into()),
         }
     }
     fn label(&self) -> String {
@@ -41,7 +41,7 @@ impl Source {
                 .file_stem()
                 .map(|s| s.to_string_lossy().chars().take(90).collect())
                 .unwrap_or_else(|| "Image".into()),
-            _ => "Image do navegador".into(),
+            _ => "Image from browser".into(),
         }
     }
     #[cfg(test)]
@@ -54,7 +54,7 @@ impl Source {
             Self::Bytes(bytes) => decode(&bytes),
             Self::File(path) => {
                 let file = std::fs::File::open(path)
-                    .map_err(|e| format!("Não foi possível abrir a imagem: {e}"))?;
+                    .map_err(|e| format!("Could not open the image: {e}"))?;
                 decode(&read_limited(file)?)
             }
             Self::Data(uri) => decode(&data_uri(&uri)?),
@@ -68,18 +68,18 @@ pub fn sources(files: Vec<egui::DroppedFile>) -> Result<Vec<Result<Source, Strin
     for file in files {
         if let Some(bytes) = file.bytes {
             if bytes.len() > MAX_ENCODED {
-                return Err("O arquivo da imagem excede 32 MB.".into());
+                return Err("The image file exceeds 32 MB.".into());
             }
             if matches!(file.mime.as_str(), "text/uri-list" | "text/plain") {
                 let text = std::str::from_utf8(&bytes)
-                    .map_err(|_| "Endereço arrastado inválido.".to_owned())?;
+                    .map_err(|_| "Invalid dropped address.".to_owned())?;
                 for uri in text
                     .lines()
                     .map(str::trim)
                     .filter(|u| !u.is_empty() && !u.starts_with('#'))
                 {
                     if sources.len() >= MAX_BATCH {
-                        return Err(format!("Arraste no máximo {MAX_BATCH} imagens por vez."));
+                        return Err(format!("Drop at most {MAX_BATCH} images at a time."));
                     }
                     sources.push(Source::uri(uri));
                 }
@@ -97,15 +97,15 @@ pub fn sources(files: Vec<egui::DroppedFile>) -> Result<Vec<Result<Source, Strin
             sources.push(Source::uri(&file.name));
         } else {
             sources.push(Err(
-                "O programa de origem não forneceu os dados da imagem.".into()
+                "The source application did not provide image data.".into()
             ));
         }
         if sources.len() > MAX_BATCH {
-            return Err(format!("Arraste no máximo {MAX_BATCH} imagens por vez."));
+            return Err(format!("Drop at most {MAX_BATCH} images at a time."));
         }
     }
     if sources.is_empty() {
-        return Err("Nenhuma imagem foi recebida.".into());
+        return Err("No image was received.".into());
     }
     Ok(sources)
 }
@@ -114,32 +114,32 @@ fn read_limited(reader: impl Read) -> Result<Vec<u8>, String> {
     reader
         .take((MAX_ENCODED + 1) as u64)
         .read_to_end(&mut bytes)
-        .map_err(|e| format!("Falha ao ler imagem: {e}"))?;
+        .map_err(|e| format!("Could not read the image: {e}"))?;
     if bytes.len() > MAX_ENCODED {
-        return Err("O arquivo da imagem excede 32 MB.".into());
+        return Err("The image file exceeds 32 MB.".into());
     }
     Ok(bytes)
 }
 fn data_uri(uri: &str) -> Result<Vec<u8>, String> {
-    let (header, data) = uri.split_once(',').ok_or("Image embutida inválida.")?;
+    let (header, data) = uri.split_once(',').ok_or("Invalid embedded image.")?;
     if !header.starts_with("data:image/") || data.len() > MAX_ENCODED * 4 / 3 + 1024 {
-        return Err("Image embutida inválida ou muito grande.".into());
+        return Err("The embedded image is invalid or too large.".into());
     }
     let bytes = if header.split(';').any(|p| p == "base64") {
         base64::engine::general_purpose::STANDARD
             .decode(data)
-            .map_err(|_| "Image base64 inválida.".to_owned())?
+            .map_err(|_| "Invalid base64 image.".to_owned())?
     } else {
         percent_encoding::percent_decode_str(data).collect()
     };
     if bytes.len() > MAX_ENCODED {
-        return Err("O arquivo da imagem excede 32 MB.".into());
+        return Err("The image file exceeds 32 MB.".into());
     }
     Ok(bytes)
 }
 fn decode(bytes: &[u8]) -> Result<Image, String> {
     if bytes.len() > MAX_ENCODED {
-        return Err("O arquivo da imagem excede 32 MB.".into());
+        return Err("The image file exceeds 32 MB.".into());
     }
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -149,7 +149,13 @@ fn decode(bytes: &[u8]) -> Result<Image, String> {
     limits.max_image_height = Some(crate::document::MAX_SIDE);
     limits.max_alloc = Some(128 * 1024 * 1024);
     reader.limits(limits);
-    let rgba=reader.decode().map_err(|_|"Não foi possível decodificar a imagem. Use PNG, JPG, WebP, GIF ou BMP de até 4096 × 4096 px.".to_owned())?.into_rgba8();
+    let rgba = reader
+        .decode()
+        .map_err(|_| {
+            "Could not decode the image. Use PNG, JPG, WebP, GIF, or BMP up to 4096 × 4096 px."
+                .to_owned()
+        })?
+        .into_rgba8();
     let image = Image {
         size: [rgba.width() as usize, rgba.height() as usize],
         pixels: rgba.into_raw(),
@@ -200,7 +206,7 @@ fn download(url: &str, cancel: &Cancellation) -> Result<Vec<u8>, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Não foi possível baixar a imagem com curl: {e}"))?;
+        .map_err(|e| format!("Could not download the image with curl: {e}"))?;
     let stdout = child.stdout.take().unwrap();
     {
         let mut slot = cancel.child.lock().unwrap();
@@ -217,14 +223,14 @@ fn download(url: &str, cancel: &Cancellation) -> Result<Vec<u8>, String> {
         return if bytes.is_err() {
             bytes
         } else {
-            Err("Importação cancelada.".into())
+            Err("Import canceled.".into())
         };
     }
     let output = child
         .wait_with_output()
-        .map_err(|e| format!("Falha ao baixar imagem: {e}"))?;
+        .map_err(|e| format!("Could not download the image: {e}"))?;
     if !output.status.success() {
-        return Err("Não foi possível baixar a imagem. O site pode exigir login ou bloquear o download; tente Copiar imagem e colar.".into());
+        return Err("Could not download the image. The site may require a login or block downloads; try Copy image and paste instead.".into());
     }
     bytes
 }
@@ -264,7 +270,7 @@ impl Job {
                     ctx.request_repaint();
                 }
             })
-            .map_err(|e| format!("Não foi possível iniciar a importação: {e}"))?;
+            .map_err(|e| format!("Could not start importing: {e}"))?;
         Ok(Self {
             target,
             total,
@@ -282,9 +288,7 @@ impl Job {
             Err(TryRecvError::Empty) => None,
             Err(TryRecvError::Disconnected) => {
                 self.received = self.total;
-                Some(Err(
-                    "A importação terminou antes de carregar todas as imagens.".into(),
-                ))
+                Some(Err("The import ended before all images were loaded.".into()))
             }
         }
     }

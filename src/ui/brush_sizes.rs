@@ -18,11 +18,11 @@ impl BrushSizes {
     pub fn contents(&mut self, ui: &mut egui::Ui, size: &mut f32) {
         let compact = ui.available_width() < 240.0 || ui.available_height() < 200.0;
         if !compact {
-            ui.heading("Brush Sizes");
+            ui.heading(crate::i18n::ui(ui.ctx(), "Brush Sizes"));
         }
         ui.horizontal_wrapped(|ui| {
             if !compact {
-                ui.label("Atual");
+                ui.label(crate::i18n::ui(ui.ctx(), "Current"));
             }
             ui.add(
                 egui::DragValue::new(size)
@@ -32,8 +32,14 @@ impl BrushSizes {
                     .suffix(" px"),
             );
             if ui
-                .button(if compact { "↕" } else { "Localizar" })
-                .on_hover_text("Show the current size on the grid")
+                .button(crate::i18n::ui(
+                    ui.ctx(),
+                    if compact { "↕" } else { "Locate" },
+                ))
+                .on_hover_text(crate::i18n::ui(
+                    ui.ctx(),
+                    "Show the current size on the grid",
+                ))
                 .clicked()
             {
                 self.locate = true;
@@ -42,7 +48,11 @@ impl BrushSizes {
         if !compact {
             ui.add(
                 egui::Label::new(
-                    egui::RichText::new("1 a 1000 px · círculos em escala ilustrativa").small(),
+                    egui::RichText::new(crate::i18n::ui(
+                        ui.ctx(),
+                        "1 to 1000 px · circles shown at an illustrative scale",
+                    ))
+                    .small(),
                 )
                 .wrap(),
             );
@@ -115,7 +125,10 @@ impl BrushSizes {
                                 egui::FontId::proportional(12.0),
                                 color,
                             );
-                            if response.on_hover_text(format!("Usar {value} px")).clicked() {
+                            if response
+                                .on_hover_text(crate::i18n::ui(ui.ctx(), format!("Use {value} px")))
+                                .clicked()
+                            {
                                 *size = value as f32;
                             }
                         });

@@ -89,8 +89,8 @@ fn supported(path: &Path) -> bool {
 }
 fn picker() -> rfd::FileDialog {
     rfd::FileDialog::new()
-        .set_title("Imagens de referência — vincular originais")
-        .add_filter("Imagens", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
+        .set_title("Reference images — link originals")
+        .add_filter("Images", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
 }
 struct Loaded {
     image: egui::ColorImage,
@@ -98,7 +98,7 @@ struct Loaded {
 }
 fn load(path: &Path) -> Result<Loaded, String> {
     let mut reader = image::ImageReader::open(path)
-        .map_err(|e| format!("Original indisponível: {e}"))?
+        .map_err(|e| format!("Original unavailable: {e}"))?
         .with_guessed_format()
         .map_err(|e| e.to_string())?;
     let mut limits = image::Limits::default();
@@ -108,7 +108,7 @@ fn load(path: &Path) -> Result<Loaded, String> {
     reader.limits(limits);
     let image = reader
         .decode()
-        .map_err(|e| format!("Não foi possível exibir o original: {e}"))?;
+        .map_err(|e| format!("Could not display the original: {e}"))?;
     let size = Vec2::new(image.width() as f32, image.height() as f32);
     let preview = if image.width().max(image.height()) > 4096 {
         image.thumbnail(4096, 4096)
@@ -165,7 +165,7 @@ impl State {
             .filter(|p| supported(p))
             .collect();
         self.notice = if paths.is_empty() {
-            "Salve a imagem no computador e vincule o arquivo original.".into()
+            "Save the image to your computer and link the original file.".into()
         } else {
             String::new()
         };
@@ -203,7 +203,7 @@ impl State {
                     if Some(job_path.as_path()) == path {
                         self.cached = Some((
                             job_path.clone(),
-                            Err("Falha ao carregar a referência. Tente Recarregar.".into()),
+                            Err("Could not load the reference. Try Reload.".into()),
                         ));
                     }
                     self.job = None;
@@ -239,8 +239,11 @@ impl State {
         let mut changed = self.take_drop(ui.ctx(), library);
         ui.horizontal_wrapped(|ui| {
             if ui
-                .button("Adicionar…")
-                .on_hover_text("Vincula imagens locais sem copiá-las para o projeto")
+                .button(crate::i18n::ui(ui.ctx(), "Add…"))
+                .on_hover_text(crate::i18n::ui(
+                    ui.ctx(),
+                    "Links local images without copying them into the project",
+                ))
                 .clicked()
                 && let Some(paths) = picker().pick_files()
             {
@@ -248,7 +251,7 @@ impl State {
             }
             if ui
                 .add_enabled(!library.images.is_empty(), egui::Button::new("‹"))
-                .on_hover_text("Referência anterior")
+                .on_hover_text(crate::i18n::ui(ui.ctx(), "Previous reference"))
                 .clicked()
             {
                 library.selected =
@@ -257,21 +260,24 @@ impl State {
             }
             if ui
                 .add_enabled(!library.images.is_empty(), egui::Button::new("›"))
-                .on_hover_text("Próxima referência")
+                .on_hover_text(crate::i18n::ui(ui.ctx(), "Next reference"))
                 .clicked()
             {
                 library.selected = (library.selected + 1) % library.images.len();
                 changed = true;
             }
             ui.menu_button("•••", |ui| {
-                if ui.button("Recarregar original").clicked() {
+                if ui
+                    .button(crate::i18n::ui(ui.ctx(), "Reload original"))
+                    .clicked()
+                {
                     self.cached = None;
                     ui.close();
                 }
                 if ui
                     .add_enabled(
                         !library.images.is_empty(),
-                        egui::Button::new("Localizar original…"),
+                        egui::Button::new(crate::i18n::ui(ui.ctx(), "Locate original…")),
                     )
                     .clicked()
                 {
@@ -287,9 +293,12 @@ impl State {
                 if ui
                     .add_enabled(
                         !library.images.is_empty(),
-                        egui::Button::new("Remover da lista"),
+                        egui::Button::new(crate::i18n::ui(ui.ctx(), "Remove from list")),
                     )
-                    .on_hover_text("Não exclui o arquivo original")
+                    .on_hover_text(crate::i18n::ui(
+                        ui.ctx(),
+                        "Does not delete the original file",
+                    ))
                     .clicked()
                 {
                     self.confirmation = Some(Confirmation::Remove {
@@ -301,7 +310,7 @@ impl State {
                 if ui
                     .add_enabled(
                         !library.images.is_empty(),
-                        egui::Button::new("Limpar lista"),
+                        egui::Button::new(crate::i18n::ui(ui.ctx(), "Clear list")),
                     )
                     .clicked()
                 {
@@ -315,11 +324,14 @@ impl State {
             egui::ComboBox::from_id_salt("reference_list")
                 .wrap_mode(egui::TextWrapMode::Truncate)
                 .width((ui.available_width() - 12.0).max(32.0))
-                .selected_text(format!(
-                    "{}/{} · {}",
-                    selected + 1,
-                    library.images.len(),
-                    name(&library.images[selected].path)
+                .selected_text(crate::i18n::ui(
+                    ui.ctx(),
+                    format!(
+                        "{}/{} · {}",
+                        selected + 1,
+                        library.images.len(),
+                        name(&library.images[selected].path)
+                    ),
                 ))
                 .show_ui(ui, |ui| {
                     egui::ScrollArea::vertical().max_height(240.0).show_rows(
@@ -357,7 +369,7 @@ impl State {
         let mut fit = false;
         let mut actual = false;
         ui.horizontal_wrapped(|ui| {
-            fit = ui.button("Ajustar").clicked();
+            fit = ui.button(crate::i18n::ui(ui.ctx(), "Fit")).clicked();
             actual = ui.button("100%").clicked();
             if ui.button("−").clicked() {
                 zoom_factor = 1.0 / 1.25;
@@ -371,13 +383,17 @@ impl State {
             ui.horizontal(|ui| {
                 if self.job.is_some() {
                     ui.spinner();
-                    ui.label("Carregando original…");
+                    ui.label(crate::i18n::ui(ui.ctx(), "Loading original…"));
                 } else if !self.notice.is_empty() {
                     ui.add(egui::Label::new(&self.notice).truncate());
                 } else {
                     ui.add(
                         egui::Label::new(
-                            egui::RichText::new("Arraste para mover · scroll para zoom").weak(),
+                            egui::RichText::new(crate::i18n::ui(
+                                ui.ctx(),
+                                "Drag to pan · scroll to zoom",
+                            ))
+                            .weak(),
                         )
                         .truncate(),
                     );
@@ -443,7 +459,7 @@ impl State {
                 painter.text(
                     rect.left_bottom() + Vec2::new(8.0, -8.0),
                     egui::Align2::LEFT_BOTTOM,
-                    format!("{:.0}%", fit_scale * entry.zoom * 100.0),
+                    crate::i18n::ui(ui.ctx(), format!("{:.0}%", fit_scale * entry.zoom * 100.0)),
                     egui::FontId::proportional(12.0),
                     Color32::WHITE,
                 );
@@ -451,14 +467,17 @@ impl State {
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(12.0)));
                 child.label(error);
                 child.label(entry.path.display().to_string());
-                child.weak("Use ••• → Localizar original… ou Recarregar original.");
+                child.weak("Use ••• → Locate original… or Reload original.");
             }
             response.on_hover_text(entry.path.display().to_string());
         } else {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "Adicione imagens de referência\nou arraste arquivos para este painel",
+                crate::i18n::ui(
+                    ui.ctx(),
+                    "Add reference images\nor drop files onto this panel",
+                ),
                 egui::FontId::proportional(14.0),
                 Color32::GRAY,
             );
@@ -478,25 +497,28 @@ impl State {
                 ui.set_max_width(340.0);
                 let (title, message, button) = match &action {
                     Confirmation::Remove { path, .. } => (
-                        "Remover referência?",
-                        format!("Remover “{}” da lista?", name(path)),
-                        "Remover",
+                        "Remove reference?",
+                        format!("Remove “{}” from the list?", name(path)),
+                        "Remove",
                     ),
                     Confirmation::Clear => (
-                        "Limpar lista de referências?",
+                        "Clear reference list?",
                         format!(
-                            "Remover todas as {} referências da lista?",
+                            "Remove all {} references from the list?",
                             library.images.len()
                         ),
-                        "Limpar lista",
+                        "Clear list",
                     ),
                 };
-                ui.heading(title);
-                ui.label(message);
-                ui.weak("Os arquivos originais não serão excluídos.");
+                ui.heading(crate::i18n::ui(ui.ctx(), title));
+                ui.label(crate::i18n::ui(ui.ctx(), message));
+                ui.weak(crate::i18n::ui(
+                    ui.ctx(),
+                    "Original files will not be deleted.",
+                ));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    cancel = ui.button("Cancelar").clicked();
+                    cancel = ui.button(crate::i18n::ui(ui.ctx(), "Cancel")).clicked();
                     confirm = ui.button(button).clicked();
                 });
             });

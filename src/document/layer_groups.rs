@@ -24,7 +24,7 @@ impl GroupEffect {
         let mut curve_points = Vec::new();
         curve_points
             .try_reserve_exact(self.settings.curve_points.len())
-            .map_err(|e| format!("Não foi possível alocar a curva do efeito: {e}"))?;
+            .map_err(|e| format!("Could not allocate the effect curve: {e}"))?;
         curve_points.extend_from_slice(&self.settings.curve_points);
         let mut settings = crate::image_ops::Settings {
             curve_points,
@@ -42,7 +42,7 @@ impl GroupEffect {
             let mut copied_values = Vec::new();
             copied_values
                 .try_reserve_exact(values.len())
-                .map_err(|e| format!("Não foi possível alocar a máscara do efeito: {e}"))?;
+                .map_err(|e| format!("Could not allocate the effect mask: {e}"))?;
             copied_values.extend_from_slice(values);
             Some(crate::selection::Mask {
                 width,
@@ -68,7 +68,7 @@ impl Document {
         let mut ids = BTreeSet::new();
         for layer in &self.layers {
             if layer.effects.len() > 32 || (!layer.effects.is_empty() && layer.group.is_none()) {
-                return Err("Estrutura de efeitos inválida.".into());
+                return Err("Invalid effect structure.".into());
             }
             for effect in layer.effects.iter() {
                 if effect.width != self.width
@@ -90,7 +90,7 @@ impl Document {
                             })
                     })
                 {
-                    return Err("Dados de efeito de grupo inválidos.".into());
+                    return Err("Invalid group effect data.".into());
                 }
             }
         }
@@ -98,16 +98,16 @@ impl Document {
         for (index, layer) in self.layers.iter().enumerate().rev() {
             if let Some(parent) = layer.parent {
                 let Some(end) = self.layers.iter().position(|l| l.group == Some(parent)) else {
-                    return Err("Grupo pai inexistente.".into());
+                    return Err("Parent group does not exist.".into());
                 };
                 if end <= index || (index + 1..end).any(|i| !self.belongs_to(i, parent)) {
-                    return Err("Hierarquia de grupos inválida.".into());
+                    return Err("Invalid group hierarchy.".into());
                 }
             }
             if let Some(id) = layer.group
                 && (id == 0 || id > (1_u64 << 60) || !ids.insert(id))
             {
-                return Err("Identificador de grupo inválido.".into());
+                return Err("Invalid group identifier.".into());
             }
         }
         Ok(())
@@ -184,11 +184,11 @@ impl Document {
                 let pixel_count = width
                     .checked_mul(self.height as usize)
                     .and_then(|count| count.checked_mul(4))
-                    .ok_or_else(|| "Dimensões do grupo muito grandes.".to_owned())?;
+                    .ok_or_else(|| "Group dimensions are too large.".to_owned())?;
                 let mut pixels = Vec::new();
                 pixels
                     .try_reserve_exact(pixel_count)
-                    .map_err(|e| format!("Não foi possível alocar o composite do grupo: {e}"))?;
+                    .map_err(|e| format!("Could not allocate the group composite: {e}"))?;
                 pixels.resize(pixel_count, 0);
                 for y in 0..self.height as usize {
                     for x in 0..width {
@@ -202,7 +202,7 @@ impl Document {
                                 dst,
                                 child.pixels[offset..offset + 4]
                                     .try_into()
-                                    .map_err(|_| "Camada de grupo inválida.".to_owned())?,
+                                    .map_err(|_| "Invalid group layer.".to_owned())?,
                                 child.opacity,
                             );
                         }
@@ -211,7 +211,7 @@ impl Document {
                 for effect in group.effects.iter() {
                     pixels = effect.apply(&pixels, self.width, self.height)?;
                     if pixels.len() != pixel_count {
-                        return Err("O efeito do grupo retornou um buffer inválido.".into());
+                        return Err("The group effect returned an invalid buffer.".into());
                     }
                 }
                 group.pixels = pixels;
@@ -289,7 +289,7 @@ impl Document {
             effects: Default::default(),
             group: Some(id),
             parent,
-            name: "Grupo".into(),
+            name: "Group".into(),
             label_color: None,
             blend_mode: Default::default(),
             visible: true,

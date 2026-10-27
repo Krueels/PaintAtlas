@@ -242,7 +242,7 @@ impl Shader {
                 match Targets::new(gl, size) {
                     Ok(t) => pool.push(t),
                     Err(e) => {
-                        eprintln!("Mesclagem OpenGL: {e}");
+                        eprintln!("OpenGL blending: {e}");
                         gl.bind_framebuffer(glow::FRAMEBUFFER, original);
                         if scissor_enabled {
                             gl.enable(glow::SCISSOR_TEST);
@@ -427,7 +427,7 @@ impl Targets {
                     );
                     if gl.check_framebuffer_status(glow::FRAMEBUFFER) != glow::FRAMEBUFFER_COMPLETE
                     {
-                        return Err("Framebuffer incompleto".into());
+                        return Err("Incomplete framebuffer".into());
                     }
                 }
                 Ok(())

@@ -58,15 +58,15 @@ impl Kind {
     ];
     pub fn label(self) -> &'static str {
         match self {
-            Self::Line => "Linha",
-            Self::Arc => "Arco",
-            Self::Polyline => "Polilinha",
-            Self::Ellipse => "Elipse",
-            Self::Circle => "Círculo",
-            Self::Triangle => "Triângulo",
-            Self::Rectangle => "Retângulo",
-            Self::Square => "Quadrado",
-            Self::Quadrilateral => "Quadrilátero",
+            Self::Line => "Line",
+            Self::Arc => "Arc",
+            Self::Polyline => "Polyline",
+            Self::Ellipse => "Ellipse",
+            Self::Circle => "Circle",
+            Self::Triangle => "Triangle",
+            Self::Rectangle => "Rectangle",
+            Self::Square => "Square",
+            Self::Quadrilateral => "Quadrilateral",
         }
     }
 }

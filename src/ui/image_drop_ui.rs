@@ -4,7 +4,9 @@ impl PaintAtlas {
         let files = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
         if !files.is_empty() {
             if self.image_import.is_some() {
-                self.status="Há uma importação em andamento. Conclua ou cancele antes de arrastar mais imagens.".into();
+                self.status =
+                    "An import is in progress. Finish or cancel it before dropping more images."
+                        .into();
             } else if self.gesture.is_some()
                 || self.selection.floating.is_some()
                 || self.creating_selection()
@@ -14,16 +16,15 @@ impl PaintAtlas {
                 || self.preferences.capturing_shortcut()
                 || self.new_dialog && !self.startup_canvas_required
             {
-                self.status =
-                    "Conclua a edição ou o diálogo atual antes de soltar uma imagem.".into();
+                self.status = "Finish the current edit or dialog before dropping an image.".into();
             } else {
                 let target = self.documents.get(self.active_document).map(|t| t.id);
                 match crate::image_drop::Job::start(files, target, ctx.clone()) {
                     Ok(job) => {
                         self.image_import = Some(job);
-                        self.status = "Carregando imagem arrastada…".into();
+                        self.status = "Loading dropped image…".into();
                     }
-                    Err(e) => self.status = format!("Erro ao importar: {e}"),
+                    Err(e) => self.status = format!("Could not import: {e}"),
                 }
             }
         }
@@ -33,7 +34,7 @@ impl PaintAtlas {
         if let Some(target) = job.target {
             if !self.documents.iter().any(|t| t.id == target) {
                 self.image_import = None;
-                self.status = "Importação cancelada: o canvas de destino foi fechado.".into();
+                self.status = "Import canceled: the destination canvas was closed.".into();
                 return;
             }
             if self
@@ -80,7 +81,7 @@ impl PaintAtlas {
                     doc.layers[0].name = loaded.name;
                     self.add_document(doc, None, true);
                     self.color = Color32::BLACK;
-                    self.status = "Image aberta em um novo canvas.".into();
+                    self.status = "Image opened in a new canvas.".into();
                 } else if let Err(e) = self.paste_image(ctx, loaded.image) {
                     self.status = e;
                 } else if let Some(f) = &mut self.selection.floating {
@@ -93,10 +94,10 @@ impl PaintAtlas {
                 }
                 if progress.1 > 1 {
                     self.status
-                        .push_str(&format!(" · {}/{} imagens", progress.0, progress.1));
+                        .push_str(&format!(" · {}/{} images", progress.0, progress.1));
                 }
             }
-            Err(e) => self.status = format!("Erro ao importar: {e}"),
+            Err(e) => self.status = format!("Could not import: {e}"),
         }
     }
     pub(super) fn image_drop_overlay(&mut self, ctx: &egui::Context) {
@@ -120,11 +121,14 @@ impl PaintAtlas {
             p.text(
                 rect.center_top() + Vec2::new(0.0, 30.0),
                 egui::Align2::CENTER_CENTER,
-                if self.documents.is_empty() {
-                    "Drop the image to open a canvas"
-                } else {
-                    "Drop the image to insert it into the current canvas"
-                },
+                crate::i18n::ui(
+                    ctx,
+                    if self.documents.is_empty() {
+                        "Drop the image to open a canvas"
+                    } else {
+                        "Drop the image to insert it into the current canvas"
+                    },
+                ),
                 egui::FontId::proportional(17.0),
                 Color32::WHITE,
             );
@@ -149,22 +153,30 @@ impl PaintAtlas {
                             if !inactive && !waiting {
                                 ui.spinner();
                             }
-                            ui.label(if inactive {
-                                "Importação aguardando o canvas de destino"
-                            } else if waiting {
-                                "Aplique ou cancele a imagem atual para importar a próxima"
-                            } else {
-                                "Carregando imagem…"
-                            });
+                            ui.label(crate::i18n::ui(
+                                ui.ctx(),
+                                if inactive {
+                                    "Import waiting for the destination canvas"
+                                } else if waiting {
+                                    "Apply or cancel the current image to import the next one"
+                                } else {
+                                    "Loading image…"
+                                },
+                            ));
                             if inactive {
-                                focus = ui.button("Go to canvas").clicked();
+                                focus = ui
+                                    .button(crate::i18n::ui(ui.ctx(), "Go to canvas"))
+                                    .clicked();
                             }
                             cancel = ui
-                                .button(if waiting {
-                                    "Cancelar próximas"
-                                } else {
-                                    "Cancelar importação"
-                                })
+                                .button(crate::i18n::ui(
+                                    ui.ctx(),
+                                    if waiting {
+                                        "Cancel remaining images"
+                                    } else {
+                                        "Cancel import"
+                                    },
+                                ))
                                 .clicked();
                         });
                     });
@@ -172,9 +184,9 @@ impl PaintAtlas {
             if cancel {
                 self.image_import = None;
                 self.status = if waiting {
-                    "Próximas imagens canceladas. Aplique ou cancele a imagem atual."
+                    "Remaining images canceled. Apply or cancel the current image."
                 } else {
-                    "Importação cancelada."
+                    "Import canceled."
                 }
                 .into();
             } else if focus && let Some(index) = target {

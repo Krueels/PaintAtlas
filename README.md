@@ -2,6 +2,8 @@
 
 A cross-platform raster drawing studio built in **Rust**, with an interface available in English and Brazilian Portuguese. A personal project inspired by Clip Studio Paint's illustration workflow: brushes, layers, selections, and transforms, with dockable panels and translucent glass styling. Linux supports pressure-sensitive tablets through XInput2/evdev; Windows supports standard pointer input.
 
+English is the default interface language across tools, image adjustments, filters, shortcuts, references, export, and application messages. Brazilian Portuguese remains available in **Settings → Language**. Language changes affect UI text and recognized factory-preset display names; custom preset names, project layer names, and file paths are preserved.
+
 [Source code on GitHub](https://github.com/Krueels/PaintAtlas)
 
 ![PaintAtlas startup screen with original artwork by Krueels](docs/images/splash.png)

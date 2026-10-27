@@ -129,7 +129,7 @@ impl Default for Settings {
             last_eraser: Some(4),
             brushes: vec![
                 Preset {
-                    name: "Caneta de arte-final".into(),
+                    name: "Inking Pen".into(),
                     eraser: false,
                     texture: None,
                     spacing: 0.15,
@@ -142,7 +142,7 @@ impl Default for Settings {
                     minimum: 0.05,
                 },
                 Preset {
-                    name: "Lápis".into(),
+                    name: "Pencil".into(),
                     eraser: false,
                     texture: None,
                     spacing: 0.15,
@@ -168,7 +168,7 @@ impl Default for Settings {
                     minimum: 0.1,
                 },
                 Preset {
-                    name: "Aerógrafo".into(),
+                    name: "Airbrush".into(),
                     eraser: false,
                     texture: None,
                     spacing: 0.15,
@@ -181,7 +181,7 @@ impl Default for Settings {
                     minimum: 0.3,
                 },
                 Preset {
-                    name: "Borracha".into(),
+                    name: "Eraser".into(),
                     eraser: true,
                     texture: None,
                     spacing: 0.15,
@@ -200,6 +200,24 @@ impl Default for Settings {
     }
 }
 impl Settings {
+    /// Localize only recognized factory presets; never rename user content on disk.
+    pub fn preset_display_name(&self, index: usize, language: crate::i18n::Language) -> String {
+        let preset = &self.brushes[index];
+        static DEFAULTS: std::sync::OnceLock<Vec<Preset>> = std::sync::OnceLock::new();
+        let defaults = DEFAULTS.get_or_init(|| Self::default().brushes);
+        if let (Some(original), Some(factory)) = (self.originals.get(index), defaults.get(index)) {
+            let legacy_name =
+                crate::i18n::source(crate::i18n::Language::PortugueseBrazil, &factory.name);
+            if preset.name == original.name
+                && (original.name == factory.name || original.name == legacy_name)
+            {
+                // Factory settings may differ across versions or have been tuned.
+                // The original name identifies the slot; only the display is localized.
+                return crate::i18n::source(language, &factory.name).into_owned();
+            }
+        }
+        preset.name.clone()
+    }
     pub fn last_for_tool(&self, eraser: bool) -> Option<usize> {
         let last = if eraser {
             self.last_eraser
@@ -242,13 +260,13 @@ impl Settings {
     pub fn load(path: &Path) -> Result<Self, String> {
         // Reference libraries store paths here; allow large lists without embedding pixels.
         if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > 32 * 1024 * 1024 {
-            return Err("Preferências muito grandes".into());
+            return Err("Preferences are too large".into());
         }
         let mut s: Self = serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
         s.shortcuts.sanitize();
         if !s.valid() {
-            return Err("Preferências inválidas".into());
+            return Err("Invalid preferences".into());
         }
         if s.originals.is_empty() {
             s.originals = s.brushes.clone();
@@ -258,17 +276,17 @@ impl Settings {
     pub fn add(&mut self, mut preset: Preset) -> Result<usize, String> {
         preset.name = preset.name.trim().to_owned();
         if self.brushes.len() >= 256 {
-            return Err("Limite de 256 pincéis atingido.".into());
+            return Err("The limit of 256 brushes has been reached.".into());
         }
         if preset.name.is_empty() || preset.name.chars().count() > 100 {
-            return Err("Informe um nome de até 100 caracteres.".into());
+            return Err("Enter a name up to 100 characters long.".into());
         }
         if self
             .brushes
             .iter()
             .any(|p| p.name.to_lowercase() == preset.name.to_lowercase())
         {
-            return Err("Já existe um pincel com esse nome.".into());
+            return Err("A brush with this name already exists.".into());
         }
         let mut candidate = self.clone();
         if candidate.originals.is_empty() {
@@ -278,7 +296,7 @@ impl Settings {
         candidate.originals.push(preset);
         candidate.selected = candidate.brushes.len() - 1;
         if !candidate.valid() {
-            return Err("Configurações de pincel inválidas.".into());
+            return Err("Invalid brush settings.".into());
         }
         let index = candidate.selected;
         *self = candidate;
@@ -286,7 +304,7 @@ impl Settings {
     }
     pub fn save(&self, path: &Path) -> Result<(), String> {
         if !self.valid() {
-            return Err("Preferências inválidas".into());
+            return Err("Invalid preferences".into());
         }
         let parent = path
             .parent()
@@ -318,6 +336,49 @@ pub fn settings_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_factory_names_display_in_english_without_renaming_user_presets() {
+        let defaults = Settings::default();
+        let mut settings = defaults.clone();
+        for (i, factory) in defaults.brushes.iter().enumerate() {
+            let legacy =
+                crate::i18n::source(crate::i18n::Language::PortugueseBrazil, &factory.name)
+                    .into_owned();
+            settings.brushes[i].name = legacy.clone();
+            settings.originals[i].name = legacy.clone();
+            assert_eq!(
+                settings.preset_display_name(i, crate::i18n::Language::English),
+                factory.name
+            );
+            assert_eq!(
+                settings.preset_display_name(i, crate::i18n::Language::PortugueseBrazil),
+                legacy
+            );
+            assert_eq!(settings.brushes[i].name, legacy);
+        }
+        settings.originals[0].hardness = 0.27;
+        assert_eq!(
+            settings.preset_display_name(0, crate::i18n::Language::English),
+            "Inking Pen"
+        );
+        settings.brushes[1].size = 123.0;
+        assert_eq!(
+            settings.preset_display_name(1, crate::i18n::Language::English),
+            "Pencil"
+        );
+        settings.brushes[0].name = "Meu pincel".into();
+        assert_eq!(
+            settings.preset_display_name(0, crate::i18n::Language::English),
+            "Meu pincel"
+        );
+        let mut custom = defaults.brushes[0].clone();
+        custom.name = "Minha caneta".into();
+        let index = settings.add(custom).unwrap();
+        assert_eq!(
+            settings.preset_display_name(index, crate::i18n::Language::English),
+            "Minha caneta"
+        );
+    }
     #[test]
     fn quickshape_preferences_roundtrip_and_legacy_defaults() {
         let mut settings = Settings::default();

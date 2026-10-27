@@ -239,7 +239,7 @@ impl State {
         painter.text(
             label_rect.center(),
             egui::Align2::CENTER_CENTER,
-            label,
+            crate::i18n::ui(ctx, label),
             egui::FontId::monospace(12.0 * scale),
             Color32::WHITE.gamma_multiply(opacity),
         );

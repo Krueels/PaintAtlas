@@ -439,10 +439,7 @@ impl PaintAtlas {
         if edit.transition.is_none() {
             edit.render(&mut self.doc);
         }
-        self.status = format!(
-            "QuickShape: {} · solte para editar",
-            edit.shape.kind.label()
-        );
+        self.status = format!("QuickShape: {} · release to edit", edit.shape.kind.label());
         stroke.active = Some(edit);
         self.changed();
     }
@@ -626,24 +623,24 @@ impl PaintAtlas {
             egui::Frame::popup(ui.style()).corner_radius(12).show(ui,|ui| {
                 ui.set_max_width(width-20.0);
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(format!("QuickShape · {}",edit.shape.kind.label()));
+                    ui.label(crate::i18n::ui(ui.ctx(), format!("QuickShape · {}",edit.shape.kind.label())));
                     if !edit.editing {
-                        if ui.button("Editar forma").clicked() {
+                        if ui.button(crate::i18n::ui(ui.ctx(), "Edit shape")).clicked() {
                             edit.editing=true;
                             changed |= edit.transition.take().is_some();
                         }
                     } else {
                         let mut kind=edit.shape.kind;
-                        egui::ComboBox::from_id_salt("quickshape_kind").selected_text(kind.label()).show_ui(ui,|ui| {
-                            for k in Kind::ALL { ui.selectable_value(&mut kind,k,k.label()); }
+                        egui::ComboBox::from_id_salt("quickshape_kind").selected_text(crate::i18n::ui(ui.ctx(), kind.label())).show_ui(ui,|ui| {
+                            for k in Kind::ALL { ui.selectable_value(&mut kind,k,crate::i18n::ui(ui.ctx(), k.label())); }
                         });
                         if kind!=edit.shape.kind { edit.shape=edit.shape.convert(kind); changed=true; }
-                        if ui.button("Regularizar").clicked() { edit.shape=edit.shape.regular(); changed=true; }
+                        if ui.button(crate::i18n::ui(ui.ctx(), "Regularize")).clicked() { edit.shape=edit.shape.regular(); changed=true; }
                     }
-                    if ui.button("Aplicar").on_hover_text(self.settings.shortcuts.label(Shortcut::QuickShapeApply)).clicked() { finish=Some(false); }
-                    if ui.button("Traço original").on_hover_text(self.settings.shortcuts.label(Shortcut::QuickShapeCancel)).clicked() { finish=Some(true); }
+                    if ui.button(crate::i18n::ui(ui.ctx(), "Apply")).on_hover_text(crate::i18n::ui(ui.ctx(), self.settings.shortcuts.label(Shortcut::QuickShapeApply))).clicked() { finish=Some(false); }
+                    if ui.button(crate::i18n::ui(ui.ctx(), "Original stroke")).on_hover_text(crate::i18n::ui(ui.ctx(), self.settings.shortcuts.label(Shortcut::QuickShapeCancel))).clicked() { finish=Some(true); }
                 });
-                if edit.editing { crate::theme::caption(ui,"Arraste as alças para ajustar; arraste o contorno para mover. Clique fora para aplicar."); }
+                if edit.editing { crate::theme::caption(ui,crate::i18n::ui(ui.ctx(), "Drag handles to adjust; drag the outline to move. Click outside to apply.")); }
             });
         });
         self.quick_shape_toolbar = Some(area.response.rect);

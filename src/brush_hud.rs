@@ -137,7 +137,7 @@ impl PaintAtlas {
         brush.size = self.size; // HUD is independent of pen pressure.
         self.paint_brush_cursor(painter, view, p, &brush);
         let text = format!(
-            "{:.0} px   ·   Opacidade {:.0}%\n↔ tamanho   ↕ opacidade",
+            "{:.0} px   ·   Opacity {:.0}%\n↔ size   ↕ opacity",
             self.size,
             self.opacity * 100.0
         );

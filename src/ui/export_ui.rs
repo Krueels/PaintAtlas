@@ -42,10 +42,10 @@ enum Sampling {
 impl Sampling {
     fn label(self) -> &'static str {
         match self {
-            Self::Nearest => "Vizinho mais próximo",
+            Self::Nearest => "Nearest Neighbor",
             Self::Bilinear => "Bilinear",
-            Self::Bicubic => "Bicúbica",
-            Self::Lanczos => "Lanczos (alta qualidade)",
+            Self::Bicubic => "Bicubic",
+            Self::Lanczos => "Lanczos (high quality)",
         }
     }
     fn filter(self) -> image::imageops::FilterType {
@@ -322,37 +322,47 @@ impl Export {
         })
     }
     fn controls(&mut self, ui: &mut egui::Ui) {
-        ui.strong("Configurações do arquivo");
+        ui.strong(crate::i18n::ui(ui.ctx(), "File settings"));
         egui::ComboBox::from_id_salt("export-format")
-            .selected_text(self.options.format.label())
+            .selected_text(crate::i18n::ui(ui.ctx(), self.options.format.label()))
             .show_ui(ui, |ui| {
                 for format in [Format::Png, Format::Jpeg, Format::Webp] {
-                    ui.selectable_value(&mut self.options.format, format, format.label());
+                    ui.selectable_value(
+                        &mut self.options.format,
+                        format,
+                        crate::i18n::ui(ui.ctx(), format.label()),
+                    );
                 }
             });
         ui.add_enabled(
             self.options.format != Format::Jpeg,
-            egui::Checkbox::new(&mut self.options.transparent, "Transparência"),
+            egui::Checkbox::new(&mut self.options.transparent, "Transparency"),
         );
         if self.options.format == Format::Jpeg || !self.options.transparent {
             ui.horizontal(|ui| {
-                ui.label("Cor do fundo");
+                ui.label(crate::i18n::ui(ui.ctx(), "Background color"));
                 ui.color_edit_button_srgb(&mut self.options.background);
             });
         }
         if self.options.format == Format::Jpeg {
-            ui.add(egui::Slider::new(&mut self.options.quality, 1..=100).text("Qualidade"));
+            ui.add(
+                egui::Slider::new(&mut self.options.quality, 1..=100)
+                    .text(crate::i18n::ui(ui.ctx(), "Quality")),
+            );
         }
         ui.add_enabled(
             self.options.format != Format::Webp,
-            egui::Checkbox::new(&mut self.options.resolution, "Incluir resolução (DPI)"),
+            egui::Checkbox::new(&mut self.options.resolution, "Include resolution (DPI)"),
         );
-        crate::theme::caption(ui, "RGB de 8 bits · sem conversão de perfil ICC");
+        crate::theme::caption(
+            ui,
+            crate::i18n::ui(ui.ctx(), "8-bit RGB · no ICC profile conversion"),
+        );
         ui.separator();
-        ui.strong("Image Size");
+        ui.strong(crate::i18n::ui(ui.ctx(), "Image Size"));
         let mut scale = self.options.width as f32 / self.original[0] as f32 * 100.0;
         ui.horizontal(|ui| {
-            ui.label("Escala");
+            ui.label(crate::i18n::ui(ui.ctx(), "Scale"));
             let max_scale =
                 (MAX_SIDE as f32 / self.original[0].max(self.original[1]) as f32 * 100.0).max(0.01);
             if ui
@@ -374,7 +384,10 @@ impl Export {
         });
         for width in [true, false] {
             ui.horizontal(|ui| {
-                ui.label(if width { "Largura" } else { "Altura" });
+                ui.label(crate::i18n::ui(
+                    ui.ctx(),
+                    if width { "Width" } else { "Height" },
+                ));
                 let dimension = if width {
                     &mut self.options.width
                 } else {
@@ -416,10 +429,13 @@ impl Export {
                 }
             });
         }
-        ui.checkbox(&mut self.proportions, "Restringir proporções");
-        ui.label("Reamostrar");
+        ui.checkbox(
+            &mut self.proportions,
+            crate::i18n::ui(ui.ctx(), "Constrain proportions"),
+        );
+        ui.label(crate::i18n::ui(ui.ctx(), "Resample"));
         egui::ComboBox::from_id_salt("export-sampling")
-            .selected_text(self.options.sampling.label())
+            .selected_text(crate::i18n::ui(ui.ctx(), self.options.sampling.label()))
             .show_ui(ui, |ui| {
                 for sampling in [
                     Sampling::Nearest,
@@ -427,11 +443,15 @@ impl Export {
                     Sampling::Bicubic,
                     Sampling::Lanczos,
                 ] {
-                    ui.selectable_value(&mut self.options.sampling, sampling, sampling.label());
+                    ui.selectable_value(
+                        &mut self.options.sampling,
+                        sampling,
+                        crate::i18n::ui(ui.ctx(), sampling.label()),
+                    );
                 }
             });
         ui.horizontal(|ui| {
-            ui.label("DPI");
+            ui.label(crate::i18n::ui(ui.ctx(), "DPI"));
             ui.add_enabled(
                 self.options.resolution && self.options.format != Format::Webp,
                 egui::DragValue::new(&mut self.options.dpi).range(1..=crate::document::MAX_DPI),
@@ -439,9 +459,15 @@ impl Export {
         });
         crate::theme::caption(
             ui,
-            format!("Original: {} × {} px", self.original[0], self.original[1]),
+            crate::i18n::ui(
+                ui.ctx(),
+                format!("Original: {} × {} px", self.original[0], self.original[1]),
+            ),
         );
-        if ui.button("Restore Original Size").clicked() {
+        if ui
+            .button(crate::i18n::ui(ui.ctx(), "Restore Original Size"))
+            .clicked()
+        {
             self.options.width = self.original[0];
             self.options.height = self.original[1];
         }
@@ -480,19 +506,22 @@ impl Export {
         ui.scope_builder(egui::UiBuilder::new().max_rect(status), |ui| {
             ui.horizontal(|ui| {
                 if let Some(error) = &self.error {
-                    ui.colored_label(Color32::LIGHT_RED, error);
+                    ui.colored_label(Color32::LIGHT_RED, crate::i18n::ui(ui.ctx(), error));
                 } else if self.is_ready() {
                     let bytes = self.ready.as_ref().unwrap().1.len();
-                    ui.label(format!(
-                        "{} · {:.2} MiB · {} × {} px",
-                        self.options.format.label(),
-                        bytes as f64 / 1048576.0,
-                        self.options.width,
-                        self.options.height
+                    ui.label(crate::i18n::ui(
+                        ui.ctx(),
+                        format!(
+                            "{} · {:.2} MiB · {} × {} px",
+                            self.options.format.label(),
+                            bytes as f64 / 1048576.0,
+                            self.options.width,
+                            self.options.height
+                        ),
                     ));
                 } else {
                     ui.spinner();
-                    ui.label("Atualizando prévia e tamanho do arquivo…");
+                    ui.label(crate::i18n::ui(ui.ctx(), "Updating preview and file size…"));
                 }
             });
         });
@@ -504,7 +533,7 @@ impl PaintAtlas {
             || self.selection.floating.is_some()
             || self.gesture.is_some()
         {
-            self.status = "Finalize a operação atual antes de exportar.".into();
+            self.status = "Finish the current operation before exporting.".into();
             return;
         }
         if self.export_dialog.is_none() {
@@ -513,13 +542,11 @@ impl PaintAtlas {
                 .as_ref()
                 .and_then(|p| p.file_stem())
                 .and_then(|s| s.to_str())
-                .unwrap_or("desenho")
+                .unwrap_or("drawing")
                 .to_owned();
             match Export::new(&self.doc, name) {
                 Ok(export) => self.export_dialog = Some(export),
-                Err(error) => {
-                    self.status = format!("Não foi possível preparar a exportação: {error}")
-                }
+                Err(error) => self.status = format!("Could not prepare the export: {error}"),
             }
         }
     }
@@ -531,7 +558,7 @@ impl PaintAtlas {
         let mut open = true;
         let mut save = false;
         let mut cancel = false;
-        egui::Window::new(format!("Export As — {}", export.name))
+        egui::Window::new(crate::i18n::ui(ctx, format!("Export As — {}", export.name)))
             .id(egui::Id::new("export-as-window"))
             .open(&mut open)
             .default_size([780.0, 490.0])
@@ -562,11 +589,17 @@ impl PaintAtlas {
                 }
                 ui.separator();
                 ui.horizontal(|ui| {
-                    crate::theme::caption(ui, "Exporta uma cópia; o projeto permanece editável.");
+                    crate::theme::caption(
+                        ui,
+                        crate::i18n::ui(ui.ctx(), "Exports a copy; the project remains editable."),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        cancel = ui.button("Cancelar").clicked();
+                        cancel = ui.button(crate::i18n::ui(ui.ctx(), "Cancel")).clicked();
                         save = ui
-                            .add_enabled(export.is_ready(), egui::Button::new("Exportar"))
+                            .add_enabled(
+                                export.is_ready(),
+                                egui::Button::new(crate::i18n::ui(ui.ctx(), "Export")),
+                            )
                             .clicked();
                     });
                 });
@@ -581,7 +614,7 @@ impl PaintAtlas {
                 path.set_extension(extension);
                 match crate::document::atomic_write(&path, bytes) {
                     Ok(()) => {
-                        self.status = format!("Image exportada: {}", path.display());
+                        self.status = format!("Image exported: {}", path.display());
                         open = false;
                     }
                     Err(error) => {

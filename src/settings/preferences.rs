@@ -12,8 +12,8 @@ impl CursorStyle {
     pub fn label(self) -> &'static str {
         match self {
             Self::Brush => "Brush Shape",
-            Self::Circle => "Círculo",
-            Self::Dot => "Ponto",
+            Self::Circle => "Circle",
+            Self::Dot => "Dot",
         }
     }
 }
@@ -27,7 +27,7 @@ pub struct Gpu {
 fn discover_gpus() -> Vec<Gpu> {
     let mut devices = vec![Gpu {
         id: String::new(),
-        name: "Automática (sistema)".into(),
+        name: "Automatic (system)".into(),
     }];
     if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
         for entry in entries.flatten() {
@@ -75,7 +75,7 @@ fn discover_gpus() -> Vec<Gpu> {
 fn discover_gpus() -> Vec<Gpu> {
     vec![Gpu {
         id: String::new(),
-        name: "Automática (sistema)".into(),
+        name: "Automatic (system)".into(),
     }]
 }
 
@@ -92,7 +92,7 @@ pub fn configure_gpu() {
         return;
     }
     if !discover_gpus().iter().any(|g| g.id == id) {
-        eprintln!("GPU configurada indisponível; usando seleção automática.");
+        eprintln!("The selected GPU is unavailable; using automatic selection.");
         return;
     }
     let Ok(exe) = std::env::current_exe() else {
@@ -114,10 +114,7 @@ pub fn configure_gpu() {
             .env_remove("__NV_PRIME_RENDER_OFFLOAD_PROVIDER")
             .env_remove("__GLX_VENDOR_LIBRARY_NAME");
     }
-    eprintln!(
-        "Não foi possível iniciar com a GPU selecionada: {}",
-        command.exec()
-    );
+    eprintln!("Could not start with the selected GPU: {}", command.exec());
 }
 #[cfg(not(target_os = "linux"))]
 pub fn configure_gpu() {}
@@ -150,7 +147,7 @@ impl Preferences {
             shortcuts: Default::default(),
             tab: 0,
             devices: discover_gpus(),
-            renderer: "Não disponível neste contexto".into(),
+            renderer: "Not available in this context".into(),
             startup_gpu,
             startup_backend,
             update_receiver: None,
@@ -242,7 +239,7 @@ impl Preferences {
                 4 => { changed |= self.shortcuts.show(ui, &mut settings.shortcuts); }
 
                 6 => {
-                    egui::CollapsingHeader::new("QuickShape").default_open(true).show(ui, |ui| {
+                    egui::CollapsingHeader::new(crate::i18n::ui(ui.ctx(), "QuickShape")).default_open(true).show(ui, |ui| {
                         changed |= ui.checkbox(&mut settings.quickshape.enabled, crate::i18n::text(language, "quickshape.enabled")).changed();
                         changed |= ui.add(egui::Slider::new(&mut settings.quickshape.delay, 0.2..=2.0).text(crate::i18n::text(language, "quickshape.delay")).suffix(" s")).changed();
                         crate::theme::caption(ui, crate::i18n::text(language, "quickshape.hint").replace("{}", &settings.shortcuts.label(crate::shortcuts::Action::QuickShapeRegular)));
@@ -253,21 +250,13 @@ impl Preferences {
                     changed |= crate::theme::toggle(
                         ui,
                         &mut settings.check_for_updates,
-                        if language == crate::i18n::Language::English {
-                            "Check for updates automatically"
-                        } else {
-                            "Verificar atualizações automaticamente"
-                        },
+                        &crate::i18n::ui(ui.ctx(), "Check for updates automatically"),
                     )
                     .changed();
                     ui.horizontal(|ui| {
                         if crate::theme::button(
                             ui,
-                            if language == crate::i18n::Language::English {
-                                "Check now"
-                            } else {
-                                "Verificar agora"
-                            },
+                            "Check now",
                         )
                         .clicked()
                         {
@@ -277,50 +266,34 @@ impl Preferences {
                             UpdateStatus::Idle => {}
                             UpdateStatus::Checking => {
                                 ui.spinner();
-                                ui.label(if language == crate::i18n::Language::English {
-                                    "Checking GitHub releases…"
-                                } else {
-                                    "Verificando releases do GitHub…"
-                                });
+                                ui.label(crate::i18n::ui(ui.ctx(), "Checking GitHub releases…"));
                             }
                             UpdateStatus::UpToDate => {
-                                ui.label(if language == crate::i18n::Language::English {
-                                    "PaintAtlas is up to date."
-                                } else {
-                                    "O PaintAtlas está atualizado."
-                                });
+                                ui.label(crate::i18n::ui(ui.ctx(), "PaintAtlas is up to date."));
                             }
                             UpdateStatus::Available(info) => {
-                                ui.label(format!(
+                                ui.label(crate::i18n::ui(ui.ctx(), format!(
                                     "{} {}",
-                                    if language == crate::i18n::Language::English {
-                                        "Version available:"
-                                    } else {
-                                        "Versão disponível:"
-                                    },
+                                    "Version available:",
                                     info.version.trim_start_matches('v')
-                                ));
+                                )));
                                 ui.hyperlink_to(
-                                    if language == crate::i18n::Language::English {
-                                        "Open release"
-                                    } else {
-                                        "Abrir release"
-                                    },
+                                    "Open release",
                                     &info.url,
                                 );
                             }
                             UpdateStatus::Failed(error) => {
-                                ui.colored_label(egui::Color32::LIGHT_RED, error);
+                                ui.colored_label(egui::Color32::LIGHT_RED, crate::i18n::ui(ui.ctx(), error));
                             }
                         }
                     });
                     crate::theme::caption(
                         ui,
-                        if language == crate::i18n::Language::English {
+                        crate::i18n::ui(ui.ctx(), if language == crate::i18n::Language::English {
                             "Checks the official PaintAtlas GitHub releases. You can disable automatic checks at any time."
                         } else {
-                            "Consulta as releases oficiais do PaintAtlas no GitHub. Você pode desativar a verificação automática quando quiser."
-                        },
+                            "Checks official PaintAtlas releases on GitHub. You can disable automatic checks at any time."
+                        }),
                     );
                 }
 
@@ -331,30 +304,30 @@ impl Preferences {
                             changed |= ui.radio_value(&mut settings.cursor_style, style, style.label()).changed();
                         }
                         if settings.cursor_style == CursorStyle::Circle {
-                            changed |= crate::theme::toggle(ui, &mut settings.circle_cursor_pressure, "Redimensionar círculo com a pressão da caneta").changed();
-                            crate::theme::caption(ui, "Desativado: o círculo mostra o tamanho configurado do pincel, sem variar com a pressão.");
+                            changed |= crate::theme::toggle(ui, &mut settings.circle_cursor_pressure, &crate::i18n::ui(ui.ctx(), "Resize the circle with pen pressure")).changed();
+                            crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), "Disabled: the circle shows the configured brush size without varying with pressure."));
                         }
-                        crate::theme::caption(ui, "Brush Shape acompanha a pressão. O ponto mantém um tamanho fixo na tela. Essas opções alteram apenas o cursor.");
+                        crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), "Brush Shape follows pen pressure. The dot keeps a fixed screen size. These options affect only the cursor."));
                     });
                 }
                 1 => {
                     egui::CollapsingHeader::new(crate::i18n::text(language, "settings.graphics_device")).default_open(true).show(ui, |ui| {
                         ui.label(crate::i18n::text(language, "settings.render_backend"));
                         egui::ComboBox::from_id_salt("render_backend")
-                            .selected_text(match settings.render_backend {
+                            .selected_text(crate::i18n::ui(ui.ctx(), match settings.render_backend {
                                 crate::presets::RenderBackend::OpenGl => "OpenGL",
                                 crate::presets::RenderBackend::Vulkan => "Vulkan",
-                            })
+                            }))
                             .show_ui(ui, |ui| {
                                 changed |= ui.selectable_value(
                                     &mut settings.render_backend,
                                     crate::presets::RenderBackend::OpenGl,
-                                    "OpenGL",
+                                    crate::i18n::ui(ui.ctx(), "OpenGL"),
                                 ).changed();
                                 changed |= ui.selectable_value(
                                     &mut settings.render_backend,
                                     crate::presets::RenderBackend::Vulkan,
-                                    "Vulkan",
+                                    crate::i18n::ui(ui.ctx(), "Vulkan"),
                                 ).changed();
                             });
                         if settings.render_backend != self.startup_backend {
@@ -365,26 +338,26 @@ impl Preferences {
                         }
                         crate::theme::caption(ui, crate::i18n::text(language, "settings.vulkan_note"));
                         ui.label(crate::i18n::text(language, "settings.gpu_opengl"));
-                        let selected = self.devices.iter().find(|g| g.id == settings.render_gpu).map(|g| g.name.as_str()).unwrap_or("GPU salva indisponível");
+                        let selected = self.devices.iter().find(|g| g.id == settings.render_gpu).map(|g| g.name.as_str()).unwrap_or("Saved GPU unavailable");
                         egui::ComboBox::from_id_salt("render_gpu").selected_text(selected).truncate().width(ui.available_width().min(460.0)).show_ui(ui, |ui| {
                             for gpu in &self.devices {
                                 changed |= ui.selectable_value(&mut settings.render_gpu, gpu.id.clone(), &gpu.name).changed();
                             }
                         });
-                        if crate::theme::button(ui, "Atualizar lista de GPUs").clicked() { self.devices = discover_gpus(); }
-                        crate::theme::caption(ui, "A escolha entra em vigor ao fechar e abrir o aplicativo. O canvas e a interface compartilham o mesmo contexto OpenGL.");
-                        crate::theme::caption(ui, "Mesa: seleção por endereço PCI. NVIDIA proprietário: PRIME offload; o driver escolhe a GPU NVIDIA disponível.");
-                        if settings.render_gpu != self.startup_gpu { ui.colored_label(egui::Color32::YELLOW, "Reinicie o aplicativo para aplicar a alteração."); }
+                        if crate::theme::button(ui, "Refresh GPU list").clicked() { self.devices = discover_gpus(); }
+                        crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), "The choice takes effect after restarting the app. The canvas and interface share the same OpenGL context."));
+                        crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), "Mesa: select by PCI address. Proprietary NVIDIA: PRIME offload; the driver chooses the available NVIDIA GPU."));
+                        if settings.render_gpu != self.startup_gpu { ui.colored_label(egui::Color32::YELLOW, crate::i18n::ui(ui.ctx(), "Restart the application to apply this change.")); }
                     });
                     egui::CollapsingHeader::new(crate::i18n::text(language, "settings.diagnostics")).default_open(true).show(ui, |ui| {
                         ui.label(crate::i18n::text(language, "settings.active_renderer"));
                         ui.label(&self.renderer);
-                        crate::theme::caption(ui, "A seleção depende do suporte PRIME e dos drivers instalados no Linux.");
+                        crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), "Selection depends on PRIME support and the graphics drivers installed on Linux."));
                     });
                 }
                 2 => {
                     egui::CollapsingHeader::new(crate::i18n::text(language, "settings.color_selector")).default_open(true).show(ui, |ui| {
-                        changed |= ui.radio_value(&mut settings.triangular_color_selector, false, "Retangular").changed();
+                        changed |= ui.radio_value(&mut settings.triangular_color_selector, false, "Rectangular").changed();
                         changed |= ui.radio_value(&mut settings.triangular_color_selector, true, "Triangular").changed();
                     });
                 }
@@ -403,11 +376,11 @@ impl Preferences {
                             settings.appearance.transparency = percent / 100.0;
                             changed = true;
                         }
-                        crate::theme::caption(ui, "Todos os painéis usam transparência e blur sobre o canvas. Ajusta a intensidade do efeito; as cores do arquivo não são alteradas.");
+                        crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), "All panels use transparency and blur over the canvas. Adjusts the effect strength; image colors are not changed."));
                     });
                     egui::CollapsingHeader::new(crate::i18n::text(language, "settings.motion")).default_open(true).show(ui, |ui| {
                         changed |= crate::theme::toggle(ui, &mut settings.appearance.reduced_motion, crate::i18n::text(language, "settings.reduce_motion")).changed();
-                        crate::theme::caption(ui, "Desativa pulsação, elasticidade, ondas e transições. A camada arrastada acompanha diretamente o ponteiro.");
+                        crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), "Disables pulsing, elasticity, waves, and transitions. The dragged layer follows the pointer directly."));
                     });
                     if crate::theme::button(ui, crate::i18n::text(language, "settings.restore_appearance")).clicked() {
                         settings.appearance = Default::default();
@@ -441,25 +414,25 @@ fn check_latest_release() -> Result<UpdateInfo, String> {
             "https://api.github.com/repos/Krueels/PaintAtlas/releases/latest",
         ])
         .output()
-        .map_err(|error| format!("Não foi possível iniciar curl: {error}"))?;
+        .map_err(|error| format!("Could not start curl: {error}"))?;
     if !output.status.success() {
         return Err(format!(
-            "GitHub retornou erro: {}",
+            "GitHub returned an error: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
     let release: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("Resposta inválida do GitHub: {error}"))?;
+        .map_err(|error| format!("Invalid response from GitHub: {error}"))?;
     let version = release
         .get("tag_name")
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "A release do GitHub não contém tag_name.".to_owned())?;
+        .ok_or_else(|| "The GitHub release does not contain tag_name.".to_owned())?;
     let url = release
         .get("html_url")
         .and_then(serde_json::Value::as_str)
         .filter(|value| value.starts_with("https://github.com/Krueels/PaintAtlas/releases/"))
-        .ok_or_else(|| "A release do GitHub não contém um link válido.".to_owned())?;
+        .ok_or_else(|| "The GitHub release does not contain a valid link.".to_owned())?;
     Ok(UpdateInfo {
         version: version.to_owned(),
         url: url.to_owned(),

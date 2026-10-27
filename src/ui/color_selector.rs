@@ -140,7 +140,7 @@ impl TriangleSelector {
             egui::WidgetInfo::labeled(
                 egui::WidgetType::ColorButton,
                 ui.is_enabled(),
-                "Seletor triangular de cor",
+                "Triangular color picker",
             )
         });
         let geometry = Geometry::new(rect, self.h);
@@ -249,9 +249,10 @@ impl TriangleSelector {
             geometry.point([self.v * self.s, self.v * (1.0 - self.s), 1.0 - self.v]),
             (side * 0.02).clamp(2.5, 5.0),
         );
-        response.clone().on_hover_text(
-            "Anel: matiz. Triângulo: saturação e valor. Vértices: matiz pura, branco e preto.",
-        );
+        response.clone().on_hover_text(crate::i18n::ui(
+            ui.ctx(),
+            "Ring: hue. Triangle: saturation and value. Corners: pure hue, white, and black.",
+        ));
         let mut degrees = self.h * 360.0;
         let mut saturation = self.s * 100.0;
         let mut value = self.v * 100.0;
@@ -265,7 +266,7 @@ impl TriangleSelector {
                         .prefix("H ")
                         .suffix("°"),
                 )
-                .on_hover_text("Matiz")
+                .on_hover_text(crate::i18n::ui(ui.ctx(), "Hue"))
                 .changed();
             edited |= ui
                 .add(
@@ -276,7 +277,7 @@ impl TriangleSelector {
                         .prefix("S ")
                         .suffix("%"),
                 )
-                .on_hover_text("Saturação")
+                .on_hover_text(crate::i18n::ui(ui.ctx(), "Saturation"))
                 .changed();
             edited |= ui
                 .add(
@@ -287,7 +288,7 @@ impl TriangleSelector {
                         .prefix("V ")
                         .suffix("%"),
                 )
-                .on_hover_text("Valor / brilho")
+                .on_hover_text(crate::i18n::ui(ui.ctx(), "Value / brightness"))
                 .changed();
         });
         if edited {

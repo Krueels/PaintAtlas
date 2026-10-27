@@ -20,7 +20,7 @@ macro_rules! catalog {
     }
 }
 catalog! {
-    Average, "Média", "Blur";
+    Average, "Average", "Blur";
     Blur, "Blur", "Blur";
     BlurMore, "Blur More", "Blur";
     BoxBlur, "Box Blur", "Blur";
@@ -29,14 +29,14 @@ catalog! {
     RadialBlur, "Radial Blur", "Blur";
     ZoomBlur, "Zoom Blur", "Blur";
     ShapeBlur, "Shape Blur", "Blur";
-    SurfaceBlur, "Blur de superfície", "Blur";
-    IrisBlur, "Blur de íris", "Galeria de desfoque";
-    TiltShift, "Inclinação / deslocamento", "Galeria de desfoque";
-    AddNoise, "Adicionar ruído", "Ruído";
-    Despeckle, "Despeckle", "Ruído";
-    DustScratches, "Poeira e arranhões", "Ruído";
-    Median, "Median", "Ruído";
-    ReduceNoise, "Reduzir ruído", "Ruído";
+    SurfaceBlur, "Surface Blur", "Blur";
+    IrisBlur, "Iris Blur", "Blur Gallery";
+    TiltShift, "Tilt-Shift", "Blur Gallery";
+    AddNoise, "Add Noise", "Noise";
+    Despeckle, "Despeckle", "Noise";
+    DustScratches, "Dust & Scratches", "Noise";
+    Median, "Median", "Noise";
+    ReduceNoise, "Reduce Noise", "Noise";
     Displace, "Displace", "Distort";
     Pinch, "Pinch", "Distort";
     Polar, "Polar Coordinates", "Distort";
@@ -47,39 +47,39 @@ catalog! {
     Wave, "Wave", "Distort";
     ZigZag, "ZigZag", "Distort";
     Glass, "Glass", "Distort";
-    ColorHalftone, "Color Halftone", "Pixelização";
-    Crystallize, "Crystallize", "Pixelização";
-    Facet, "Facet", "Pixelização";
-    Fragment, "Fragment", "Pixelização";
-    Mezzotint, "Mezzotint", "Pixelização";
-    Mosaic, "Mosaic", "Pixelização";
-    Pointillize, "Pointillize", "Pixelização";
+    ColorHalftone, "Color Halftone", "Pixelate";
+    Crystallize, "Crystallize", "Pixelate";
+    Facet, "Facet", "Pixelate";
+    Fragment, "Fragment", "Pixelate";
+    Mezzotint, "Mezzotint", "Pixelate";
+    Mosaic, "Mosaic", "Pixelate";
+    Pointillize, "Pointillize", "Pixelate";
     Clouds, "Clouds", "Render";
-    DifferenceClouds, "Clouds por diferença", "Render";
+    DifferenceClouds, "Difference Clouds", "Render";
     Fibers, "Fibers", "Render";
     LensFlare, "Lens Flare", "Render";
     Sharpen, "Sharpen", "Sharpen";
     SharpenMore, "Sharpen More", "Sharpen";
-    SharpenEdges, "Tornar bordas nítidas", "Sharpen";
+    SharpenEdges, "Sharpen Edges", "Sharpen";
     AdaptiveSharpen, "Adaptive Sharpen", "Sharpen";
-    UnsharpMask, "Máscara de nitidez", "Sharpen";
-    Diffuse, "Difusão", "Estilização";
-    Emboss, "Emboss", "Estilização";
-    FindEdges, "Edges", "Estilização";
-    OilPaint, "Pintura a óleo", "Estilização";
-    Solarize, "Solarização", "Estilização";
-    TraceContour, "Traçar contorno", "Estilização";
-    Wind, "Wind", "Estilização";
-    ColoredPencil, "Lápis de cor", "Artísticos";
-    DryBrush, "Dry Brush", "Artísticos";
-    FilmGrain, "Granulação de filme", "Artísticos";
-    NeonGlow, "Neon Glow", "Artísticos";
-    PosterEdges, "Poster Edges", "Artísticos";
-    Watercolor, "Watercolor", "Artísticos";
-    Crosshatch, "Crosshatch", "Traçados de pincel";
-    InkOutlines, "Ink Outlines", "Traçados de pincel";
+    UnsharpMask, "Unsharp Mask", "Sharpen";
+    Diffuse, "Diffuse", "Stylize";
+    Emboss, "Emboss", "Stylize";
+    FindEdges, "Edges", "Stylize";
+    OilPaint, "Oil Paint", "Stylize";
+    Solarize, "Solarize", "Stylize";
+    TraceContour, "Trace Contour", "Stylize";
+    Wind, "Wind", "Stylize";
+    ColoredPencil, "Colored Pencil", "Artistic";
+    DryBrush, "Dry Brush", "Artistic";
+    FilmGrain, "Film Grain", "Artistic";
+    NeonGlow, "Neon Glow", "Artistic";
+    PosterEdges, "Poster Edges", "Artistic";
+    Watercolor, "Watercolor", "Artistic";
+    Crosshatch, "Crosshatch", "Brush Strokes";
+    InkOutlines, "Ink Outlines", "Brush Strokes";
     GraphicPen, "Graphic Pen", "Sketch";
-    Photocopy, "Fotocópia", "Sketch";
+    Photocopy, "Photocopy", "Sketch";
     Stamp, "Stamp", "Sketch";
     HalftonePattern, "Halftone Pattern", "Sketch";
     Grain, "Grain", "Texture";
@@ -87,28 +87,28 @@ catalog! {
     Patchwork, "Patchwork", "Texture";
     StainedGlass, "Stained Glass", "Texture";
     Texturizer, "Texturizer", "Texture";
-    Deinterlace, "Desentrelaçar", "Vídeo";
+    Deinterlace, "De-Interlace", "Video";
     Custom, "Custom (3 × 3)", "Other";
-    HighPass, "Alta frequência", "Other";
-    Maximum, "Máximo", "Other";
-    Minimum, "Mínimo", "Other";
+    HighPass, "High Pass", "Other";
+    Maximum, "Maximum", "Other";
+    Minimum, "Minimum", "Other";
     Offset, "Offset", "Other";
 }
 
 pub const CATEGORIES: &[&str] = &[
     "Blur",
-    "Galeria de desfoque",
-    "Ruído",
+    "Blur Gallery",
+    "Noise",
     "Distort",
-    "Pixelização",
+    "Pixelate",
     "Render",
     "Sharpen",
-    "Estilização",
-    "Artísticos",
-    "Traçados de pincel",
+    "Stylize",
+    "Artistic",
+    "Brush Strokes",
     "Sketch",
     "Texture",
-    "Vídeo",
+    "Video",
     "Other",
 ];
 #[derive(Clone, Copy)]
@@ -127,122 +127,122 @@ impl Kind {
         match self {
             Average | Blur | BlurMore | Facet | Despeckle | Sharpen | SharpenMore | Solarize
             | FindEdges => &[],
-            BoxBlur | GaussianBlur | HighPass => controls![0, "Raio (px)", 0.0, 64.0, 4.0, false],
+            BoxBlur | GaussianBlur | HighPass => controls![0, "Radius (px)", 0.0, 64.0, 4.0, false],
             MotionBlur => {
-                controls![0,"Distância (px)",0.0,200.0,20.0,false;1,"Ângulo",-180.0,180.0,0.0,false;4,"Amostras",4.0,32.0,12.0,true]
+                controls![0,"Distance (px)",0.0,200.0,20.0,false;1,"Angle",-180.0,180.0,0.0,false;4,"Samples",4.0,32.0,12.0,true]
             }
             RadialBlur | ZoomBlur => {
-                controls![0,"Intensidade",0.0,100.0,20.0,false;2,"Centro X (%)",0.0,100.0,50.0,false;3,"Centro Y (%)",0.0,100.0,50.0,false;4,"Amostras",4.0,32.0,12.0,true]
+                controls![0,"Strength",0.0,100.0,20.0,false;2,"Center X (%)",0.0,100.0,50.0,false;3,"Center Y (%)",0.0,100.0,50.0,false;4,"Samples",4.0,32.0,12.0,true]
             }
             ShapeBlur => {
-                controls![0,"Raio (px)",0.0,64.0,8.0,false;1,"Forma: disco / hexágono / quadrado",0.0,2.0,0.0,true]
+                controls![0,"Radius (px)",0.0,64.0,8.0,false;1,"Shape: disc / hexagon / square",0.0,2.0,0.0,true]
             }
             SurfaceBlur | ReduceNoise => {
-                controls![0,"Raio (px)",1.0,12.0,3.0,false;1,"Tolerância",1.0,100.0,25.0,false]
+                controls![0,"Radius (px)",1.0,12.0,3.0,false;1,"Tolerance",1.0,100.0,25.0,false]
             }
             IrisBlur => {
-                controls![0,"Blur (px)",0.0,64.0,8.0,false;1,"Área em foco (%)",1.0,95.0,30.0,false;2,"Centro X (%)",0.0,100.0,50.0,false;3,"Centro Y (%)",0.0,100.0,50.0,false]
+                controls![0,"Blur (px)",0.0,64.0,8.0,false;1,"Focus area (%)",1.0,95.0,30.0,false;2,"Center X (%)",0.0,100.0,50.0,false;3,"Center Y (%)",0.0,100.0,50.0,false]
             }
             TiltShift => {
-                controls![0,"Blur (px)",0.0,64.0,8.0,false;1,"Faixa em foco (%)",1.0,95.0,25.0,false;2,"Posição (%)",0.0,100.0,50.0,false;3,"Ângulo",-90.0,90.0,0.0,false]
+                controls![0,"Blur (px)",0.0,64.0,8.0,false;1,"Focus band (%)",1.0,95.0,25.0,false;2,"Position (%)",0.0,100.0,50.0,false;3,"Angle",-90.0,90.0,0.0,false]
             }
             AddNoise | FilmGrain | Grain => {
-                controls![0,"Quantidade (%)",0.0,100.0,15.0,false;1,"Distribuição: uniforme / gaussiana",0.0,1.0,0.0,true;2,"Monocromático",0.0,1.0,1.0,true]
+                controls![0,"Amount (%)",0.0,100.0,15.0,false;1,"Distribution: uniform / Gaussian",0.0,1.0,0.0,true;2,"Monochromatic",0.0,1.0,1.0,true]
             }
-            Median => controls![0, "Raio (px)", 1.0, 12.0, 1.0, true],
+            Median => controls![0, "Radius (px)", 1.0, 12.0, 1.0, true],
             DustScratches => {
-                controls![0,"Raio (px)",1.0,12.0,2.0,true;1,"Threshold",0.0,255.0,25.0,false]
+                controls![0,"Radius (px)",1.0,12.0,2.0,true;1,"Threshold",0.0,255.0,25.0,false]
             }
             Displace => {
                 controls![0,"Offset X (px)",-200.0,200.0,20.0,false;1,"Offset Y (px)",-200.0,200.0,20.0,false]
             }
             Pinch | Spherize => {
-                controls![0,"Intensidade (%)",-100.0,100.0,50.0,false;2,"Centro X (%)",0.0,100.0,50.0,false;3,"Centro Y (%)",0.0,100.0,50.0,false]
+                controls![0,"Strength (%)",-100.0,100.0,50.0,false;2,"Center X (%)",0.0,100.0,50.0,false;3,"Center Y (%)",0.0,100.0,50.0,false]
             }
             Polar => controls![
                 0,
-                "Direção: retangular → polar / inversa",
+                "Direction: rectangular → polar / inverse",
                 0.0,
                 1.0,
                 0.0,
                 true
             ],
             Ripple | Wave => {
-                controls![0,"Amplitude (px)",0.0,100.0,8.0,false;1,"Comprimento de onda (px)",2.0,500.0,40.0,false;2,"Direção",-180.0,180.0,0.0,false]
+                controls![0,"Amplitude (px)",0.0,100.0,8.0,false;1,"Wavelength (px)",2.0,500.0,40.0,false;2,"Direction",-180.0,180.0,0.0,false]
             }
             Shear => {
-                controls![0,"Desvio (px)",-300.0,300.0,40.0,false;1,"Curvatura",-1.0,1.0,0.5,false]
+                controls![0,"Deviation (px)",-300.0,300.0,40.0,false;1,"Curvature",-1.0,1.0,0.5,false]
             }
             Twirl => {
-                controls![0,"Ângulo",-720.0,720.0,90.0,false;2,"Centro X (%)",0.0,100.0,50.0,false;3,"Centro Y (%)",0.0,100.0,50.0,false]
+                controls![0,"Angle",-720.0,720.0,90.0,false;2,"Center X (%)",0.0,100.0,50.0,false;3,"Center Y (%)",0.0,100.0,50.0,false]
             }
             ZigZag => {
-                controls![0,"Intensidade (px)",-50.0,50.0,8.0,false;1,"Ondulações",1.0,20.0,5.0,false;2,"Centro X (%)",0.0,100.0,50.0,false;3,"Centro Y (%)",0.0,100.0,50.0,false]
+                controls![0,"Strength (px)",-50.0,50.0,8.0,false;1,"Ripples",1.0,20.0,5.0,false;2,"Center X (%)",0.0,100.0,50.0,false;3,"Center Y (%)",0.0,100.0,50.0,false]
             }
             Glass => {
-                controls![0,"Distorção (px)",0.0,64.0,6.0,false;1,"Escala da textura (px)",2.0,128.0,12.0,false]
+                controls![0,"Distortion (px)",0.0,64.0,6.0,false;1,"Texture scale (px)",2.0,128.0,12.0,false]
             }
             ColorHalftone | HalftonePattern => {
-                controls![0,"Tamanho (px)",2.0,64.0,8.0,false;1,"Ângulo",-180.0,180.0,15.0,false]
+                controls![0,"Size (px)",2.0,64.0,8.0,false;1,"Angle",-180.0,180.0,15.0,false]
             }
-            Crystallize | Mosaic => controls![0, "Tamanho da célula (px)", 2.0, 128.0, 12.0, true],
+            Crystallize | Mosaic => controls![0, "Cell size (px)", 2.0, 128.0, 12.0, true],
             Pointillize | StainedGlass | Patchwork | MosaicTiles => {
-                controls![0,"Tamanho da célula (px)",2.0,128.0,12.0,true;1,"Borda / intervalo (%)",0.0,50.0,10.0,false]
+                controls![0,"Cell size (px)",2.0,128.0,12.0,true;1,"Edge / gap (%)",0.0,50.0,10.0,false]
             }
             Fragment => controls![0, "Offset (px)", 0.0, 64.0, 4.0, false],
             Mezzotint => {
-                controls![0,"Comprimento dos pontos (px)",1.0,16.0,1.0,true;1,"Color",0.0,1.0,0.0,true]
+                controls![0,"Dot length (px)",1.0,16.0,1.0,true;1,"Color",0.0,1.0,0.0,true]
             }
             Clouds | DifferenceClouds => {
-                controls![0,"Escala (px)",2.0,512.0,64.0,false;1,"Detalhe",1.0,6.0,4.0,true]
+                controls![0,"Scale (px)",2.0,512.0,64.0,false;1,"Detail",1.0,6.0,4.0,true]
             }
             Fibers => {
-                controls![0,"Espessura (px)",1.0,64.0,3.0,false;1,"Comprimento (px)",2.0,512.0,100.0,false;2,"Contraste",0.1,5.0,1.5,false]
+                controls![0,"Thickness (px)",1.0,64.0,3.0,false;1,"Length (px)",2.0,512.0,100.0,false;2,"Contrast",0.1,5.0,1.5,false]
             }
             LensFlare => {
-                controls![0,"Brilho (%)",0.0,200.0,75.0,false;1,"Centro X (%)",0.0,100.0,35.0,false;2,"Centro Y (%)",0.0,100.0,30.0,false]
+                controls![0,"Brightness (%)",0.0,200.0,75.0,false;1,"Center X (%)",0.0,100.0,35.0,false;2,"Center Y (%)",0.0,100.0,30.0,false]
             }
             SharpenEdges | UnsharpMask => {
-                controls![0,"Intensidade (%)",0.0,300.0,100.0,false;1,"Raio (px)",0.1,32.0,2.0,false;2,"Threshold",0.0,100.0,5.0,false]
+                controls![0,"Strength (%)",0.0,300.0,100.0,false;1,"Radius (px)",0.1,32.0,2.0,false;2,"Threshold",0.0,100.0,5.0,false]
             }
             AdaptiveSharpen => {
-                controls![0,"Intensidade (%)",0.0,300.0,100.0,false;1,"Raio (px)",0.1,32.0,2.0,false;2,"Threshold",0.0,100.0,5.0,false;3,"Reduzir halos (%)",0.0,100.0,50.0,false]
+                controls![0,"Strength (%)",0.0,300.0,100.0,false;1,"Radius (px)",0.1,32.0,2.0,false;2,"Threshold",0.0,100.0,5.0,false;3,"Reduce halos (%)",0.0,100.0,50.0,false]
             }
-            Diffuse => controls![0, "Raio (px)", 0.0, 32.0, 2.0, false],
+            Diffuse => controls![0, "Radius (px)", 0.0, 32.0, 2.0, false],
             Emboss => {
-                controls![0,"Ângulo",-180.0,180.0,135.0,false;1,"Altura (px)",1.0,16.0,1.0,false;2,"Intensidade (%)",0.0,300.0,100.0,false]
+                controls![0,"Angle",-180.0,180.0,135.0,false;1,"Height (px)",1.0,16.0,1.0,false;2,"Strength (%)",0.0,300.0,100.0,false]
             }
             OilPaint | DryBrush | Watercolor => {
-                controls![0,"Tamanho do pincel (px)",1.0,12.0,3.0,false;1,"Níveis de cor",2.0,64.0,12.0,true]
+                controls![0,"Brush size (px)",1.0,12.0,3.0,false;1,"Color levels",2.0,64.0,12.0,true]
             }
-            TraceContour => controls![0, "Nível", 0.0, 255.0, 128.0, false],
+            TraceContour => controls![0, "Level", 0.0, 255.0, 128.0, false],
             Wind => {
-                controls![0,"Força (px)",0.0,100.0,20.0,false;1,"Direção: esquerda / direita",0.0,1.0,0.0,true]
+                controls![0,"Strength (px)",0.0,100.0,20.0,false;1,"Direction: left / right",0.0,1.0,0.0,true]
             }
             ColoredPencil => {
-                controls![0,"Raio (px)",0.1,16.0,2.0,false;1,"Cor (%)",0.0,100.0,60.0,false]
+                controls![0,"Radius (px)",0.1,16.0,2.0,false;1,"Color (%)",0.0,100.0,60.0,false]
             }
             NeonGlow => {
-                controls![0,"Intensidade",0.0,5.0,2.0,false;1,"Brilho de fundo (%)",0.0,100.0,20.0,false]
+                controls![0,"Strength",0.0,5.0,2.0,false;1,"Background brightness (%)",0.0,100.0,20.0,false]
             }
-            InkOutlines => controls![0, "Intensidade das bordas", 0.0, 5.0, 2.0, false],
+            InkOutlines => controls![0, "Edge strength", 0.0, 5.0, 2.0, false],
             PosterEdges => {
-                controls![0,"Intensidade das bordas",0.0,5.0,2.0,false;1,"Níveis de cor",2.0,64.0,8.0,true]
+                controls![0,"Edge strength",0.0,5.0,2.0,false;1,"Color levels",2.0,64.0,8.0,true]
             }
             Crosshatch | GraphicPen => {
-                controls![0,"Espaçamento (px)",2.0,24.0,5.0,false;1,"Contraste",0.1,3.0,1.0,false]
+                controls![0,"Spacing (px)",2.0,24.0,5.0,false;1,"Contrast",0.1,3.0,1.0,false]
             }
             Photocopy | Stamp => {
-                controls![0,"Threshold",0.0,255.0,128.0,false;1,"Detalhe",0.0,5.0,1.0,false]
+                controls![0,"Threshold",0.0,255.0,128.0,false;1,"Detail",0.0,5.0,1.0,false]
             }
             Texturizer => {
-                controls![0,"Escala da trama (px)",2.0,64.0,8.0,false;1,"Relevo (%)",0.0,100.0,25.0,false]
+                controls![0,"Weave scale (px)",2.0,64.0,8.0,false;1,"Depth (%)",0.0,100.0,25.0,false]
             }
-            Deinterlace => controls![0, "Remover linhas: pares / ímpares", 0.0, 1.0, 0.0, true],
+            Deinterlace => controls![0, "Remove lines: even / odd", 0.0, 1.0, 0.0, true],
             Custom => {
                 controls![9,"Divisor",-100.0,100.0,1.0,false;10,"Offset",-255.0,255.0,0.0,false]
             }
-            Maximum | Minimum => controls![0, "Raio (px)", 1.0, 64.0, 1.0, true],
+            Maximum | Minimum => controls![0, "Radius (px)", 1.0, 64.0, 1.0, true],
             Offset => {
                 controls![0,"Horizontal (px)",-4096.0,4096.0,20.0,true;1,"Vertical (px)",-4096.0,4096.0,20.0,true]
             }
@@ -389,7 +389,7 @@ impl Settings {
 }
 fn check(cancel: &AtomicBool) -> Result<(), String> {
     if cancel.load(Ordering::Relaxed) {
-        Err("Filtro cancelado.".into())
+        Err("Filter canceled.".into())
     } else {
         Ok(())
     }
@@ -542,7 +542,7 @@ fn box_pass(
         }
         for task in tasks {
             task.join()
-                .map_err(|_| "Falha no processamento paralelo do desfoque.".to_string())??;
+                .map_err(|_| "Parallel blur processing failed.".to_string())??;
         }
         Ok(())
     })
@@ -651,7 +651,7 @@ fn map_pixels<S: Sync, D: Send>(
         }
         for task in tasks {
             task.join()
-                .map_err(|_| "Falha na conversão do desfoque.".to_string())??;
+                .map_err(|_| "Blur conversion failed.".to_string())??;
         }
         Ok(())
     })
@@ -1655,7 +1655,7 @@ fn filtered(
                 }
                 Custom => {
                     let divisor = if p[9].abs() < 1e-6 {
-                        return Err("O divisor da convolução não pode ser zero.".into());
+                        return Err("The convolution divisor cannot be zero.".into());
                     } else {
                         p[9]
                     };
@@ -1704,14 +1704,14 @@ pub fn apply(
             .and_then(|v| v.checked_mul(4))
             != Some(source.len())
     {
-        return Err("Dimensões inválidas para o filtro.".into());
+        return Err("Invalid filter dimensions.".into());
     }
     if let Some(mask) = mask
         && (mask.width as usize != settings.width
             || mask.height as usize != settings.height
             || mask.values.len() != settings.width * settings.height)
     {
-        return Err("Seleção incompatível com o filtro.".into());
+        return Err("The selection is incompatible with the filter.".into());
     }
     if let Some(map) = &settings.map
         && (map.width == 0
@@ -1722,10 +1722,10 @@ pub fn apply(
                 .and_then(|v| v.checked_mul(4))
                 != Some(map.pixels.len()))
     {
-        return Err("Mapa de deslocamento inválido.".into());
+        return Err("Invalid displacement map.".into());
     }
     if !settings.p.iter().all(|v| v.is_finite()) || !settings.mix.is_finite() {
-        return Err("Parâmetros inválidos para o filtro.".into());
+        return Err("Invalid filter parameters.".into());
     }
     if settings.mix <= 0.0 {
         return copied_buffer(source);

@@ -4,16 +4,16 @@ fn clone_layer_fallible(layer: &crate::document::Layer) -> Result<crate::documen
     let mut pixels = Vec::new();
     pixels
         .try_reserve_exact(layer.pixels.len())
-        .map_err(|error| format!("Não foi possível duplicar os pixels da camada: {error}"))?;
+        .map_err(|error| format!("Could not duplicate layer pixels: {error}"))?;
     pixels.extend_from_slice(&layer.pixels);
     let mut name = String::new();
     name.try_reserve_exact(layer.name.len())
-        .map_err(|error| format!("Não foi possível duplicar o nome da camada: {error}"))?;
+        .map_err(|error| format!("Could not duplicate the layer name: {error}"))?;
     name.push_str(&layer.name);
     let mut rulers = Vec::new();
     rulers
         .try_reserve_exact(layer.rulers.len())
-        .map_err(|error| format!("Não foi possível duplicar as réguas da camada: {error}"))?;
+        .map_err(|error| format!("Could not duplicate layer rulers: {error}"))?;
     rulers.extend_from_slice(&layer.rulers);
     Ok(crate::document::Layer {
         rulers,
@@ -69,40 +69,40 @@ impl PaintAtlas {
         let mut action = None;
         let available = self.selection.floating.is_none() && self.gesture.is_none();
         ui.add_enabled_ui(available, |ui| {
-            if ui.button(self.settings.shortcuts.menu(Shortcut::LayerGroup, "Agrupar selecionadas")).clicked() { action = Some(LayerAction::Group); }
-            if ui.add_enabled(self.selected_layer_indices().len() > 1, egui::Button::new(self.settings.shortcuts.menu(Shortcut::LayerMerge, "Mesclar selecionadas"))).clicked() { action = Some(LayerAction::MergeSelected); }
+            if ui.button(self.settings.shortcuts.menu(Shortcut::LayerGroup, "Group selected")).clicked() { action = Some(LayerAction::Group); }
+            if ui.add_enabled(self.selected_layer_indices().len() > 1, egui::Button::new(self.settings.shortcuts.menu(Shortcut::LayerMerge, "Merge selected"))).clicked() { action = Some(LayerAction::MergeSelected); }
             if !self.doc.layers[index].rulers.is_empty() {
-                ui.menu_button("Réguas da camada", |ui| {
-                    if ui.button("Editar réguas").clicked() { action = Some(LayerAction::EditRulers); }
+                ui.menu_button(crate::i18n::ui(ui.ctx(), "Layer rulers"), |ui| {
+                    if ui.button(crate::i18n::ui(ui.ctx(), "Edit rulers")).clicked() { action = Some(LayerAction::EditRulers); }
                     for scope in [crate::rulers::Scope::Layer, crate::rulers::Scope::Folder, crate::rulers::Scope::All] {
-                        if ui.button(scope.label()).clicked() { action = Some(LayerAction::RulerScope(scope)); }
+                        if ui.button(crate::i18n::ui(ui.ctx(), scope.label())).clicked() { action = Some(LayerAction::RulerScope(scope)); }
                     }
                     let visible = self.doc.layers[index].rulers.iter().any(|r| r.visible);
-                    if ui.button(if visible { "Ocultar réguas" } else { "Mostrar réguas" }).clicked() { action = Some(LayerAction::RulerVisible(!visible)); }
-                    if ui.button("Excluir réguas").clicked() { action = Some(LayerAction::RemoveRulers); }
+                    if ui.button(crate::i18n::ui(ui.ctx(), if visible { "Hide rulers" } else { "Show rulers" })).clicked() { action = Some(LayerAction::RulerVisible(!visible)); }
+                    if ui.button(crate::i18n::ui(ui.ctx(), "Delete rulers")).clicked() { action = Some(LayerAction::RemoveRulers); }
                 });
             }
-            if ui.button("Renomear…").clicked() {
+            if ui.button(crate::i18n::ui(ui.ctx(), "Rename…")).clicked() {
                 action = Some(LayerAction::Rename);
             }
-            if ui.add_enabled(self.doc.can_add(), egui::Button::new("Duplicar selecionadas / grupo")).clicked() {
+            if ui.add_enabled(self.doc.can_add(), egui::Button::new(crate::i18n::ui(ui.ctx(), "Duplicate selected layers / group"))).clicked() {
                 action = Some(LayerAction::Duplicate);
             }
-            if ui.add_enabled(self.can_merge_down(index), egui::Button::new("Merge Down"))
-                .on_hover_text("Une duas camadas visíveis no modo Normal, preservando sua aparência e transparência.")
-                .on_disabled_hover_text("É preciso ter uma camada abaixo e ambas devem estar visíveis no modo Normal.")
+            if ui.add_enabled(self.can_merge_down(index), egui::Button::new(crate::i18n::ui(ui.ctx(), "Merge Down")))
+                .on_hover_text(crate::i18n::ui(ui.ctx(), "Merges two visible Normal layers, preserving their appearance and transparency."))
+                .on_disabled_hover_text("Requires a layer below; both must be visible and use Normal blending.")
                 .clicked() {
                 action = Some(LayerAction::MergeDown);
             }
-            if ui.add_enabled(!self.doc.layers[index].effects.is_empty(), egui::Button::new("Remove Group Filters and Adjustments")).clicked() { action = Some(LayerAction::ClearEffects); }
-            if ui.add_enabled(self.doc.layers[index].group.is_some(), egui::Button::new("Rasterize Group")).on_hover_text("Permanently merges child layers. Use Undo to restore them.").clicked() { action = Some(LayerAction::Rasterize); }
-            if ui.add_enabled(self.doc.layers.len() > 1, egui::Button::new("Excluir selecionadas / grupo")).clicked() {
+            if ui.add_enabled(!self.doc.layers[index].effects.is_empty(), egui::Button::new(crate::i18n::ui(ui.ctx(), "Remove Group Filters and Adjustments"))).clicked() { action = Some(LayerAction::ClearEffects); }
+            if ui.add_enabled(self.doc.layers[index].group.is_some(), egui::Button::new(crate::i18n::ui(ui.ctx(), "Rasterize Group"))).on_hover_text(crate::i18n::ui(ui.ctx(), "Permanently merges child layers. Use Undo to restore them.")).clicked() { action = Some(LayerAction::Rasterize); }
+            if ui.add_enabled(self.doc.layers.len() > 1, egui::Button::new(crate::i18n::ui(ui.ctx(), "Delete selected layers / group"))).clicked() {
                 action = Some(LayerAction::Delete);
             }
             ui.separator();
-            ui.label("Cor de organização");
+            ui.label(crate::i18n::ui(ui.ctx(), "Organization color"));
             ui.horizontal(|ui| {
-                if ui.small_button("×").on_hover_text("No color").clicked() {
+                if ui.small_button("×").on_hover_text(crate::i18n::ui(ui.ctx(), "No color")).clicked() {
                     action = Some(LayerAction::Label(None));
                 }
                 for color in [
@@ -240,8 +240,7 @@ impl PaintAtlas {
                         .any(|&i| self.doc.layers[i].parent != self.doc.layers[index].parent)
                 {
                     self.status =
-                        "Selecione camadas do mesmo nível; verifique também o limite de memória."
-                            .into();
+                        "Select layers at the same level; also check the memory limit.".into();
                     return;
                 }
                 self.checkpoint();
@@ -273,13 +272,12 @@ impl PaintAtlas {
                         .and_then(|bytes| self.doc.bytes().checked_add(bytes))
                         .is_none_or(|bytes| bytes > 256 * 1024 * 1024)
                 {
-                    self.status = "Duplicação excede o limite de camadas ou memória.".into();
+                    self.status = "Duplication exceeds the layer or memory limit.".into();
                     return;
                 }
                 let mut prepared = Vec::new();
                 if prepared.try_reserve_exact(selected.len()).is_err() {
-                    self.status =
-                        "Não foi possível reservar memória para duplicar as camadas.".into();
+                    self.status = "Could not reserve memory to duplicate layers.".into();
                     return;
                 }
                 for &i in selected.iter().rev() {
@@ -287,8 +285,7 @@ impl PaintAtlas {
                     let count = i - start + 1;
                     let mut copies = Vec::new();
                     if let Err(error) = copies.try_reserve_exact(count) {
-                        self.status =
-                            format!("Não foi possível reservar as camadas duplicadas: {error}");
+                        self.status = format!("Could not reserve the duplicated layers: {error}");
                         return;
                     }
                     for layer in &self.doc.layers[start..=i] {
@@ -303,8 +300,7 @@ impl PaintAtlas {
                     prepared.push((i, copies));
                 }
                 if self.doc.layers.try_reserve(positions.len()).is_err() {
-                    self.status =
-                        "Não foi possível reservar espaço para as camadas duplicadas.".into();
+                    self.status = "Could not reserve space for the duplicated layers.".into();
                     return;
                 }
                 self.checkpoint();
@@ -330,7 +326,7 @@ impl PaintAtlas {
                         l.parent = l.parent.map(|id| ids.get(&id).copied().unwrap_or(id));
                     }
                     let last = copies.last_mut().unwrap();
-                    last.name = format!("{} cópia", last.name.chars().take(90).collect::<String>());
+                    last.name = format!("{} copy", last.name.chars().take(90).collect::<String>());
                     self.doc.active = i + copies.len();
                     for (offset, copy) in copies.drain(..).enumerate() {
                         self.doc.layers.insert(i + 1 + offset, copy);
@@ -367,20 +363,19 @@ impl PaintAtlas {
                     .iter()
                     .any(|&i| self.doc.layers[i].parent != parent)
                 {
-                    self.status = "Para mesclar, selecione camadas do mesmo nível de grupo.".into();
+                    self.status = "To merge, select layers at the same group level.".into();
                     return;
                 }
                 let Some(pixel_count) = (self.doc.width as usize)
                     .checked_mul(self.doc.height as usize)
                     .and_then(|count| count.checked_mul(4))
                 else {
-                    self.status = "A imagem é grande demais para mesclar camadas.".into();
+                    self.status = "The image is too large to merge layers.".into();
                     return;
                 };
                 let mut pixels = Vec::new();
                 if let Err(error) = pixels.try_reserve_exact(pixel_count) {
-                    self.status =
-                        format!("Não foi possível reservar memória para mesclar: {error}");
+                    self.status = format!("Could not reserve memory for merging: {error}");
                     return;
                 }
                 pixels.resize(pixel_count, 0);

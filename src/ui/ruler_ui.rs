@@ -57,7 +57,7 @@ impl PaintAtlas {
             return;
         }
         if self.doc.layers[self.doc.active].rulers.len() >= 8 {
-            self.status = "Limite de 8 réguas por camada.".into();
+            self.status = "Limit of 8 rulers per layer.".into();
             return;
         }
         if !self.settings.show_rulers {
@@ -79,14 +79,14 @@ impl PaintAtlas {
         self.ruler_ui.kind = kind;
         self.select_tool(Tool::Ruler);
         self.dirty = true;
-        self.status = "Régua criada. Arraste as alças; selecione o pincel para desenhar.".into();
+        self.status = "Ruler created. Drag the handles; select the brush to draw.".into();
     }
     pub(super) fn ruler_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Réguas", |ui| {
+        ui.menu_button(crate::i18n::ui(ui.ctx(), "Rulers"), |ui| {
             self.ruler_toggles(ui);
             ui.separator();
             for kind in Kind::ALL {
-                if ui.button(kind.label()).clicked() {
+                if ui.button(crate::i18n::ui(ui.ctx(), kind.label())).clicked() {
                     self.create_ruler(kind);
                     ui.close();
                 }
@@ -96,7 +96,7 @@ impl PaintAtlas {
                 .button(
                     self.settings
                         .shortcuts
-                        .menu(Shortcut::RulerTool, "Editar réguas"),
+                        .menu(Shortcut::RulerTool, "Edit rulers"),
                 )
                 .clicked()
             {
@@ -107,10 +107,16 @@ impl PaintAtlas {
     }
     fn ruler_toggles(&mut self, ui: &mut egui::Ui) {
         let changed = ui
-            .checkbox(&mut self.settings.show_rulers, "Mostrar réguas")
+            .checkbox(
+                &mut self.settings.show_rulers,
+                crate::i18n::ui(ui.ctx(), "Show rulers"),
+            )
             .changed()
-            | ui.checkbox(&mut self.settings.snap_rulers, "Encaixar nas réguas")
-                .changed();
+            | ui.checkbox(
+                &mut self.settings.snap_rulers,
+                crate::i18n::ui(ui.ctx(), "Snap to rulers"),
+            )
+            .changed();
         if changed {
             self.settings_pending = true;
             self.settings_edited = std::time::Instant::now();
@@ -120,20 +126,27 @@ impl PaintAtlas {
         self.ruler_toggles(ui);
         ui.separator();
         egui::ComboBox::from_id_salt("new_ruler_kind")
-            .selected_text(self.ruler_ui.kind.label())
+            .selected_text(crate::i18n::ui(ui.ctx(), self.ruler_ui.kind.label()))
             .show_ui(ui, |ui| {
                 for kind in Kind::ALL {
-                    ui.selectable_value(&mut self.ruler_ui.kind, kind, kind.label());
+                    ui.selectable_value(
+                        &mut self.ruler_ui.kind,
+                        kind,
+                        crate::i18n::ui(ui.ctx(), kind.label()),
+                    );
                 }
             });
-        if crate::theme::button(ui, "Criar ao centro").clicked() {
+        if crate::theme::button(ui, "Create at center").clicked() {
             self.create_ruler(self.ruler_ui.kind);
         }
         crate::theme::caption(
             ui,
-            format!(
-                "Arraste no espaço vazio para criar. Arraste as alças para editar. {}: ângulos de 15°.",
-                self.settings.shortcuts.label(Shortcut::RulerAngleSnap)
+            crate::i18n::ui(
+                ui.ctx(),
+                format!(
+                    "Drag in empty space to create. Drag handles to edit. {}: 15° angles.",
+                    self.settings.shortcuts.label(Shortcut::RulerAngleSnap)
+                ),
             ),
         );
         ui.separator();
@@ -143,10 +156,13 @@ impl PaintAtlas {
                 "{} {}{}",
                 i + 1,
                 r.kind.label(),
-                if r.enabled { " · ativa" } else { "" }
+                if r.enabled { " · active" } else { "" }
             );
             if ui
-                .selectable_label(self.ruler_ui.selected == Some(i), label)
+                .selectable_label(
+                    self.ruler_ui.selected == Some(i),
+                    crate::i18n::ui(ui.ctx(), label),
+                )
                 .clicked()
             {
                 self.ruler_ui.selected = Some(i);
@@ -162,22 +178,35 @@ impl PaintAtlas {
         let mut ruler = self.doc.layers[active].rulers[index].clone();
         let before = ruler.clone();
         ui.separator();
-        ui.checkbox(&mut ruler.visible, "Visível");
-        ui.checkbox(&mut ruler.enabled, "Encaixe ativo");
+        ui.checkbox(&mut ruler.visible, crate::i18n::ui(ui.ctx(), "Visible"));
+        ui.checkbox(
+            &mut ruler.enabled,
+            crate::i18n::ui(ui.ctx(), "Snapping enabled"),
+        );
         egui::ComboBox::from_id_salt("ruler_scope")
-            .selected_text(ruler.scope.label())
+            .selected_text(crate::i18n::ui(ui.ctx(), ruler.scope.label()))
             .show_ui(ui, |ui| {
                 for scope in [Scope::Layer, Scope::Folder, Scope::All] {
-                    ui.selectable_value(&mut ruler.scope, scope, scope.label());
+                    ui.selectable_value(
+                        &mut ruler.scope,
+                        scope,
+                        crate::i18n::ui(ui.ctx(), scope.label()),
+                    );
                 }
             });
         if ruler.kind == Kind::Symmetry {
-            ui.add(egui::Slider::new(&mut ruler.lines, 2..=16).text("Linhas"));
+            ui.add(
+                egui::Slider::new(&mut ruler.lines, 2..=16)
+                    .text(crate::i18n::ui(ui.ctx(), "Lines")),
+            );
             if ruler.lines.is_multiple_of(2) {
-                ui.checkbox(&mut ruler.mirror, "Simetria por espelhamento");
+                ui.checkbox(
+                    &mut ruler.mirror,
+                    crate::i18n::ui(ui.ctx(), "Mirror symmetry"),
+                );
             } else {
                 ruler.mirror = false;
-                ui.label("Número ímpar: simetria por rotação");
+                ui.label(crate::i18n::ui(ui.ctx(), "Odd count: rotational symmetry"));
             }
         }
         if ruler.kind.perspective() == 0 {
@@ -189,13 +218,13 @@ impl PaintAtlas {
                 ruler.angle = degrees.to_radians();
             }
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Vertical").clicked() {
+                if ui.button(crate::i18n::ui(ui.ctx(), "Vertical")).clicked() {
                     ruler.angle = std::f32::consts::FRAC_PI_2;
                 }
-                if ui.button("Horizontal").clicked() {
+                if ui.button(crate::i18n::ui(ui.ctx(), "Horizontal")).clicked() {
                     ruler.angle = 0.0;
                 }
-                if ui.button("Centralizar").clicked() {
+                if ui.button(crate::i18n::ui(ui.ctx(), "Center")).clicked() {
                     ruler.origin = [self.doc.width as f32 / 2.0, self.doc.height as f32 / 2.0];
                 }
             });
@@ -203,7 +232,7 @@ impl PaintAtlas {
             for i in 0..ruler.kind.perspective() {
                 ui.checkbox(
                     &mut ruler.directions[i],
-                    format!("Encaixar no ponto de fuga {}", i + 1),
+                    crate::i18n::ui(ui.ctx(), format!("Snap to vanishing point {}", i + 1)),
                 );
                 ui.horizontal_wrapped(|ui| {
                     ui.add(
@@ -222,19 +251,26 @@ impl PaintAtlas {
             }
             crate::theme::caption(
                 ui,
-                "Arraste os pontos de fuga. Volte ao início do traço para escolher outra direção.",
+                crate::i18n::ui(
+                    ui.ctx(),
+                    "Drag the vanishing points. Return to the stroke’s start to choose another direction.",
+                ),
             );
         }
         let mut delete = false;
         ui.horizontal_wrapped(|ui| {
-            if ui.button("Duplicar").clicked() && self.doc.layers[active].rulers.len() < 8 {
+            if ui.button(crate::i18n::ui(ui.ctx(), "Duplicate")).clicked()
+                && self.doc.layers[active].rulers.len() < 8
+            {
                 self.history.push_layer_properties(&self.doc);
                 let mut copy = ruler.clone();
                 copy.enabled = false;
                 self.doc.layers[active].rulers.push(copy);
                 self.dirty = true;
             }
-            delete = ui.button("Excluir régua").clicked();
+            delete = ui
+                .button(crate::i18n::ui(ui.ctx(), "Delete ruler"))
+                .clicked();
         });
         if delete {
             self.history.push_layer_properties(&self.doc);
@@ -469,7 +505,7 @@ impl PaintAtlas {
                             painter.text(
                                 p + Vec2::new(9.0, -9.0),
                                 egui::Align2::LEFT_BOTTOM,
-                                format!("PF{}", n + 1),
+                                crate::i18n::ui(ui.ctx(), format!("VP{}", n + 1)),
                                 egui::FontId::proportional(12.0),
                                 color,
                             );

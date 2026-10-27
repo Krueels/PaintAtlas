@@ -27,16 +27,14 @@ impl PaintAtlas {
     }
     pub(super) fn paste_from_clipboard(&mut self, ctx: &egui::Context) {
         if self.image_editor.is_some() {
-            self.status = "Aplique ou cancele a operação de imagem antes de colar.".into();
+            self.status = "Apply or cancel the image operation before pasting.".into();
             return;
         }
         match self.clipboard.read_image() {
             Ok(image) => {
                 // The animation keeps only a small thumbnail; the original pixels
                 // continue through the normal, lossless paste/transform path.
-                let preview = self
-                    .clipboard_motion
-                    .visible()
+                let preview = (!self.startup_canvas_required && self.clipboard_motion.visible())
                     .then(|| super::clipboard_motion::thumbnail(ctx, &image));
                 match self.paste_image(ctx, image) {
                     Ok(()) => {
@@ -50,7 +48,7 @@ impl PaintAtlas {
                             self.clipboard_motion.pasted(ctx, image, target);
                         }
                     }
-                    Err(error) => self.status = format!("Erro ao colar: {error}"),
+                    Err(error) => self.status = format!("Could not paste: {error}"),
                 }
             }
             Err(error) => {
@@ -67,16 +65,21 @@ impl PaintAtlas {
     ) -> Result<(), String> {
         if self.startup_canvas_required || self.documents.is_empty() {
             image.validate()?;
+            let transition = self.startup_paste_transition(
+                ctx,
+                Vec2::new(image.size[0] as f32, image.size[1] as f32),
+            );
             let mut doc =
                 Document::try_from_rgba(image.size[0] as u32, image.size[1] as u32, image.pixels)?;
-            doc.layers[0].name = "Image colada".into();
+            doc.layers[0].name = "Image pasted".into();
             self.add_document(doc, None, true);
             self.color = Color32::BLACK;
             self.status = "Canvas created from copied image.".into();
+            self.begin_startup_transition(ctx, transition);
             return Ok(());
         }
         if self.selection.floating.is_some() || self.gesture.is_some() {
-            return Err("Aplique ou cancele a transformação atual antes de colar.".into());
+            return Err("Apply or cancel the current transform before pasting.".into());
         }
         image.validate()?;
         let size = Vec2::new(image.size[0] as f32, image.size[1] as f32);
@@ -146,8 +149,7 @@ impl PaintAtlas {
             return false;
         }
         if self.selection.floating.is_some() {
-            self.status =
-                "Aplique ou cancele a transformação atual antes de copiar ou colar.".into();
+            self.status = "Apply or cancel the current transform before copying or pasting.".into();
             return true;
         }
         if copy {
@@ -275,7 +277,7 @@ mod tests {
         );
         app.history.commit(&app.doc);
         assert_eq!(app.doc.layers.len(), 2);
-        assert_eq!(app.doc.layers[1].name, "Image colada");
+        assert_eq!(app.doc.layers[1].name, "Image pasted");
         assert_eq!(
             &app.doc.layers[1].pixels[(3 * 8 + 3) * 4..(3 * 8 + 3) * 4 + 4],
             &[200, 20, 40, 128]
@@ -474,7 +476,7 @@ mod tests {
     fn text_fields_keep_copy_and_paste_events_instead_of_pasting_images() {
         let ctx = egui::Context::default();
         let mut app = PaintAtlas::from_context(&ctx);
-        let mut text = String::from("Nome");
+        let mut text = String::from("Name");
         let id = egui::Id::new("clipboard_text_field");
         let _ = ctx.run(Default::default(), |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -496,7 +498,7 @@ mod tests {
                 });
             },
         );
-        assert_eq!(text, "Nome");
+        assert_eq!(text, "Name");
         assert!(app.selection.floating.is_none());
     }
 }

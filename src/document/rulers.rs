@@ -26,13 +26,13 @@ impl Kind {
     ];
     pub fn label(self) -> &'static str {
         match self {
-            Self::Symmetry => "Simetria",
-            Self::Parallel => "Linhas paralelas",
-            Self::Radial => "Linhas radiais",
-            Self::Guide => "Guia reta",
-            Self::Perspective1 => "Perspectiva: 1 ponto",
-            Self::Perspective2 => "Perspectiva: 2 pontos",
-            Self::Perspective3 => "Perspectiva: 3 pontos",
+            Self::Symmetry => "Symmetry",
+            Self::Parallel => "Parallel lines",
+            Self::Radial => "Radial lines",
+            Self::Guide => "Straight guide",
+            Self::Perspective1 => "Perspective: 1 point",
+            Self::Perspective2 => "Perspective: 2 points",
+            Self::Perspective3 => "Perspective: 3 points",
         }
     }
     pub fn perspective(self) -> usize {
@@ -53,9 +53,9 @@ pub enum Scope {
 impl Scope {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Layer => "Somente esta camada",
-            Self::Folder => "Mesma pasta / grupo",
-            Self::All => "Todas as camadas",
+            Self::Layer => "This layer only",
+            Self::Folder => "Same folder / group",
+            Self::All => "All layers",
         }
     }
 }

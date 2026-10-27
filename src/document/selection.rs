@@ -296,7 +296,7 @@ impl Floating {
             return Err("Make the layer visible to transform it.".into());
         }
         if layer.alpha_lock && !whole_layer {
-            return Err("Desative Bloquear transparência para transformar o recorte.".into());
+            return Err("Disable Lock transparency to transform the selection.".into());
         }
         let r = mask.bounds;
         let size = [r.width() as usize, r.height() as usize];
@@ -329,7 +329,7 @@ impl Floating {
             }
         }
         if !has_pixels {
-            return Err("A seleção não contém pixels na camada ativa.".into());
+            return Err("The selection contains no pixels on the active layer.".into());
         }
         Ok(Self {
             layer: doc.active,
@@ -360,13 +360,13 @@ impl Floating {
             || bounds.width() <= 0.0
             || bounds.height() <= 0.0
         {
-            return Err("Image ou dimensões de colagem inválidas.".into());
+            return Err("Invalid image or paste dimensions.".into());
         }
         if !doc.can_add() {
-            return Err("Limite de camadas ou de memória atingido.".into());
+            return Err("Layer or memory limit reached.".into());
         }
         if !pixels.as_chunks::<4>().0.iter().any(|p| p[3] > 0) {
-            return Err("A imagem está totalmente transparente.".into());
+            return Err("The image is fully transparent.".into());
         }
         // The pasted rectangle is selected independently of image alpha. Using
         // alpha as selection coverage would fade translucent pixels on the next copy.

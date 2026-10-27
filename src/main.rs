@@ -70,7 +70,7 @@ mod workspace;
 fn main() -> eframe::Result {
     if std::env::args().any(|arg| arg == "--tablet-diagnostics") {
         let mut tablet = tablet::Tablet::new(eframe::egui::Context::default());
-        eprintln!("Diagnóstico por 20 segundos: encoste a caneta e varie a pressão.");
+        eprintln!("20-second diagnostics: touch the pen to the tablet and vary the pressure.");
         let end = std::time::Instant::now() + std::time::Duration::from_secs(20);
         let mut previous = -1.0_f32;
         while std::time::Instant::now() < end {

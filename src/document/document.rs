@@ -161,7 +161,7 @@ impl Document {
                 parent: None,
                 label_color: None,
                 blend_mode: Default::default(),
-                name: "Camada 1".into(),
+                name: "Layer 1".into(),
                 visible: true,
                 opacity: 1.0,
                 pixels,
@@ -217,7 +217,7 @@ impl Document {
                 parent: None,
                 label_color: None,
                 blend_mode: Default::default(),
-                name: "Papel".into(),
+                name: "Paper".into(),
                 visible: true,
                 opacity: 1.0,
                 pixels,
@@ -231,7 +231,7 @@ impl Document {
             parent: None,
             label_color: None,
             blend_mode: Default::default(),
-            name: "Camada 1".into(),
+            name: "Layer 1".into(),
             visible: true,
             opacity: 1.0,
             pixels: zeroed_pixels(size)?,
@@ -319,7 +319,7 @@ impl Document {
                 parent,
                 label_color: None,
                 blend_mode: Default::default(),
-                name: format!("Camada {}", self.layers.len()),
+                name: format!("Layer {}", self.layers.len()),
                 visible: true,
                 opacity: 1.0,
                 pixels,
@@ -735,17 +735,17 @@ impl Document {
     }
     fn validate(&self) -> Result<(), String> {
         if !(1..=MAX_DPI).contains(&self.dpi) {
-            return Err("DPI inválido (limite: 1 a 9600).".into());
+            return Err("Invalid DPI (range: 1 to 9600).".into());
         }
         if self.width == 0 || self.height == 0 || self.width > MAX_SIDE || self.height > MAX_SIDE {
-            return Err("Dimensões inválidas (limite: 4096 × 4096).".into());
+            return Err("Invalid dimensions (maximum: 4096 × 4096).".into());
         }
         if self.layers.is_empty()
             || self.layers.len() > 32
             || self.active >= self.layers.len()
             || self.bytes() > MAX_BYTES
         {
-            return Err("Estrutura de camadas inválida ou muito grande.".into());
+            return Err("Invalid layer structure or memory limit exceeded.".into());
         }
         let expected = (self.width * self.height * 4) as usize;
         if self.layers.iter().any(|l| {
@@ -756,7 +756,7 @@ impl Document {
                 || !(0.0..=1.0).contains(&l.opacity)
                 || l.name.len() > 1024
         }) {
-            return Err("Dados de camada inválidos.".into());
+            return Err("Invalid layer data.".into());
         }
         self.validate_groups()?;
         Ok(())
@@ -789,7 +789,7 @@ impl Document {
         let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
         let file_len = file.metadata().map_err(|e| e.to_string())?.len();
         if file_len > MAX_PROJECT_FILE as u64 {
-            return Err("File excede o limite de 256 MB.".into());
+            return Err("The file exceeds the 256 MB limit.".into());
         }
         let initial_capacity = usize::try_from(file_len)
             .map_err(|_| "Project file is too large for this platform.".to_owned())?;
@@ -806,7 +806,7 @@ impl Document {
                 .len()
                 .checked_add(read)
                 .filter(|&len| len <= MAX_PROJECT_FILE)
-                .ok_or_else(|| "File excede o limite de 256 MB.".to_owned())?;
+                .ok_or_else(|| "The file exceeds the 256 MB limit.".to_owned())?;
             data.try_reserve(read)
                 .map_err(|e| format!("Unable to grow project read buffer: {e}"))?;
             data.extend_from_slice(&chunk[..read]);
@@ -1011,7 +1011,7 @@ impl Document {
                     .collect(),
             }
         } else {
-            return Err("Este não é um projeto PaintAtlas válido.".into());
+            return Err("This is not a valid PaintAtlas project.".into());
         };
         doc.validate()?;
         doc.try_rebuild_groups_after(None, None)?;
@@ -1029,7 +1029,7 @@ impl Document {
         reader.limits(limits);
         let image = reader.decode().map_err(|e| e.to_string())?.into_rgba8();
         let mut doc = Self::try_from_rgba(image.width(), image.height(), image.into_raw())?;
-        doc.layers[0].name = "Image importada".into();
+        doc.layers[0].name = "Imported image".into();
         doc.validate()?;
         Ok(doc)
     }

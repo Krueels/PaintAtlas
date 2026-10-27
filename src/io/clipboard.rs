@@ -6,7 +6,7 @@ use crate::{
 };
 #[cfg(not(test))]
 use std::borrow::Cow;
-const NO_IMAGE: &str = "O clipboard não contém uma imagem. No navegador, use “Copiar imagem”, não “Copiar endereço da imagem”.";
+const NO_IMAGE: &str = "The clipboard does not contain an image. In your browser, choose “Copy image”, not “Copy image address”.";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Image {
@@ -17,7 +17,7 @@ impl Image {
     pub fn validate(&self) -> Result<(), String> {
         if self.size.contains(&0) || self.size.iter().any(|&v| v > MAX_SIDE as usize) {
             return Err(format!(
-                "A imagem precisa ter entre 1 e {MAX_SIDE} pixels em cada dimensão."
+                "The image must be between 1 and {MAX_SIDE} pixels on each side."
             ));
         }
         if self.size[0]
@@ -25,7 +25,7 @@ impl Image {
             .and_then(|n| n.checked_mul(4))
             != Some(self.pixels.len())
         {
-            return Err("Dados de imagem inválidos no clipboard.".into());
+            return Err("Invalid image data in the clipboard.".into());
         }
         Ok(())
     }
@@ -42,9 +42,8 @@ impl SystemClipboard {
     #[cfg(not(test))]
     fn native(&mut self) -> Result<&mut arboard::Clipboard, String> {
         if self.native.is_none() {
-            self.native = Some(
-                arboard::Clipboard::new().map_err(|e| format!("Clipboard indisponível: {e}"))?,
-            );
+            self.native =
+                Some(arboard::Clipboard::new().map_err(|e| format!("Clipboard unavailable: {e}"))?);
         }
         Ok(self.native.as_mut().unwrap())
     }
@@ -55,7 +54,7 @@ impl SystemClipboard {
         let image = {
             let data = self.native()?.get_image().map_err(|e| match e {
                 arboard::Error::ContentNotAvailable => NO_IMAGE.to_owned(),
-                _ => format!("Não foi possível ler a imagem do clipboard: {e}"),
+                _ => format!("Could not read the clipboard image: {e}"),
             })?;
             Image {
                 size: [data.width, data.height],
@@ -80,14 +79,14 @@ impl SystemClipboard {
                     height: image.size[1],
                     bytes: Cow::Borrowed(&image.pixels),
                 })
-                .map_err(|e| format!("Não foi possível copiar a imagem: {e}"))
+                .map_err(|e| format!("Could not copy the image: {e}"))
         }
     }
 }
 
 pub fn capture(doc: &Document, mask: Option<&Mask>, merged: bool) -> Result<Image, String> {
     if mask.is_some_and(|m| m.width != doc.width || m.height != doc.height) {
-        return Err("A seleção não corresponde ao canvas atual.".into());
+        return Err("The selection does not match the current canvas.".into());
     }
     let bounds = mask.map_or(
         eframe::egui::Rect::from_min_size(
@@ -110,11 +109,11 @@ pub fn capture(doc: &Document, mask: Option<&Mask>, merged: bool) -> Result<Imag
     let pixel_bytes = size[0]
         .checked_mul(size[1])
         .and_then(|pixels| pixels.checked_mul(4))
-        .ok_or_else(|| "A seleção é grande demais para copiar.".to_owned())?;
+        .ok_or_else(|| "The selection is too large to copy.".to_owned())?;
     let mut pixels = Vec::new();
     pixels
         .try_reserve_exact(pixel_bytes)
-        .map_err(|error| format!("Não foi possível reservar memória para copiar: {error}"))?;
+        .map_err(|error| format!("Could not reserve memory for copying: {error}"))?;
     pixels.resize(pixel_bytes, 0);
     let mut visible = false;
     for y in 0..size[1] {
@@ -134,8 +133,7 @@ pub fn capture(doc: &Document, mask: Option<&Mask>, merged: bool) -> Result<Imag
     }
     if !visible {
         return Err(
-            "Não há pixels para copiar. Selecione a camada do desenho ou use Copiar mesclado."
-                .into(),
+            "There are no pixels to copy. Select the drawing layer or use Copy merged.".into(),
         );
     }
     let image = Image { size, pixels };

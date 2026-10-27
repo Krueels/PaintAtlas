@@ -103,7 +103,7 @@ impl PaintAtlas {
             .then(|| try_copy_layer_for_reveal(&self.doc.layers[root].pixels))
             .flatten();
         if let Err(error) = self.doc.fill(point, color, opacity, self.tolerance) {
-            self.status = format!("Não foi possível preencher a área: {error}");
+            self.status = format!("Could not fill the area: {error}");
             return;
         }
         self.changed();
@@ -123,8 +123,7 @@ impl PaintAtlas {
             ) {
                 Ok(image) => image,
                 Err(error) => {
-                    self.status =
-                        format!("Preenchimento concluído; animação indisponível: {error}");
+                    self.status = format!("Fill completed; animation unavailable: {error}");
                     return;
                 }
             };

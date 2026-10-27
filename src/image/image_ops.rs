@@ -27,11 +27,14 @@ struct ImageJobPermit {
 impl ImageJobPermit {
     fn acquire(estimated_bytes: usize) -> Result<Self, String> {
         let estimated_bytes = u64::try_from(estimated_bytes)
-            .map_err(|_| "Estimativa de memória da tarefa excede o limite suportado.".to_owned())?;
+            .map_err(|_| "Estimated task memory exceeds the supported limit.".to_owned())?;
         let mut active = ACTIVE_IMAGE_JOBS.load(Ordering::Acquire);
         loop {
             if active >= MAX_IMAGE_JOBS {
-                return Err("Limite de tarefas de imagem simultâneas atingido. Aguarde ou cancele uma tarefa em andamento.".into());
+                return Err(
+                    "Concurrent image task limit reached. Wait for a task to finish or cancel one."
+                        .into(),
+                );
             }
             match ACTIVE_IMAGE_JOBS.compare_exchange_weak(
                 active,
@@ -47,8 +50,7 @@ impl ImageJobPermit {
                         else {
                             ACTIVE_IMAGE_JOBS.fetch_sub(1, Ordering::AcqRel);
                             return Err(
-                                "Estimativa de memória das tarefas excede o limite suportado."
-                                    .into(),
+                                "Estimated image task memory exceeds the supported limit.".into()
                             );
                         };
                         match ACTIVE_IMAGE_JOB_BYTES.compare_exchange_weak(
@@ -122,28 +124,28 @@ impl Adjustment {
     ];
     pub fn label(self) -> &'static str {
         match self {
-            Self::Filter => "Filtro",
+            Self::Filter => "Filter",
             Self::BrightnessContrast => "Brightness / Contrast",
-            Self::Levels => "Níveis",
+            Self::Levels => "Levels",
             Self::Curves => "Curves",
-            Self::Exposure => "Exposição",
-            Self::Vibrance => "Vibração",
-            Self::HueSaturation => "Matiz / saturação",
-            Self::ColorBalance => "Equilíbrio de cores",
+            Self::Exposure => "Exposure",
+            Self::Vibrance => "Vibrance",
+            Self::HueSaturation => "Hue / Saturation",
+            Self::ColorBalance => "Color Balance",
             Self::BlackWhite => "Black & White",
             Self::PhotoFilter => "Photo Filter",
             Self::ChannelMixer => "Channel Mixer",
-            Self::Invert => "Inverter",
+            Self::Invert => "Invert",
             Self::Posterize => "Posterize",
             Self::Threshold => "Threshold",
-            Self::GradientMap => "Mapa de degradê",
+            Self::GradientMap => "Gradient Map",
             Self::ShadowsHighlights => "Shadows / Highlights",
             Self::Desaturate => "Desaturate",
             Self::ReplaceColor => "Replace Color",
             Self::Equalize => "Equalize",
-            Self::AutoTone => "Tom automático",
-            Self::AutoContrast => "Contraste automático",
-            Self::AutoColor => "Cor automática",
+            Self::AutoTone => "Auto Tone",
+            Self::AutoContrast => "Auto Contrast",
+            Self::AutoColor => "Auto Color",
         }
     }
     pub fn immediate(self) -> bool {
@@ -338,14 +340,14 @@ impl<T: Send + 'static> Job<T> {
                     ctx.request_repaint();
                 }
             })
-            .map_err(|e| format!("Não foi possível iniciar o processamento: {e}"))?;
+            .map_err(|e| format!("Could not start processing: {e}"))?;
         Ok(Self { receiver, cancel })
     }
     pub fn poll(&self) -> Option<Result<T, String>> {
         match self.receiver.try_recv() {
             Ok(v) => Some(v),
             Err(mpsc::TryRecvError::Empty) => None,
-            Err(_) => Some(Err("O processamento da imagem foi interrompido.".into())),
+            Err(_) => Some(Err("Image processing was interrupted.".into())),
         }
     }
 }
@@ -356,7 +358,7 @@ impl<T> Drop for Job<T> {
 }
 fn canceled(flag: &AtomicBool) -> Result<(), String> {
     if flag.load(Ordering::Relaxed) {
-        Err("Operação cancelada.".into())
+        Err("Operation canceled.".into())
     } else {
         Ok(())
     }
@@ -372,7 +374,7 @@ pub fn adjust(
         return crate::filters::apply(
             source,
             mask,
-            settings.filter.as_ref().ok_or("Filtro não configurado.")?,
+            settings.filter.as_ref().ok_or("No filter configured.")?,
             cancel,
         );
     }
@@ -620,10 +622,10 @@ pub enum Geometry {
 }
 fn dimensions(doc: &Document, w: u32, h: u32) -> Result<(), String> {
     if w == 0 || h == 0 || w > MAX_SIDE || h > MAX_SIDE {
-        return Err("O resultado deve ter entre 1 e 4096 px por lado.".into());
+        return Err("The result must be between 1 and 4096 px on each side.".into());
     }
     if w as u64 * h as u64 * 4 * doc.layers.len() as u64 > 256 * 1024 * 1024 {
-        return Err("O resultado excede o limite de 256 MiB de pixels do documento.".into());
+        return Err("The result exceeds the document’s 256 MiB pixel limit.".into());
     }
     Ok(())
 }
@@ -800,7 +802,7 @@ pub fn geometry(
             }
         }
         if bounds[2] <= bounds[0] || bounds[3] <= bounds[1] {
-            return Err("Não há conteúdo diferente da borda para aparar.".into());
+            return Err("There is no content different from the border to trim.".into());
         }
         if !sides[0] {
             bounds[0] = 0;
@@ -825,7 +827,7 @@ pub fn geometry(
         }
         Geometry::Crop([x0, y0, x1, y1]) => {
             if x1 <= x0 || y1 <= y0 || x1 > w || y1 > h {
-                return Err("Limites de recorte inválidos.".into());
+                return Err("Invalid crop bounds.".into());
             }
             (x1 - x0, y1 - y0)
         }

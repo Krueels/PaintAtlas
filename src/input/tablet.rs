@@ -40,7 +40,7 @@ impl Tablet {
             xinput: None,
             wayland: false,
             active: None,
-            name: "Mesa de teste".into(),
+            name: "Test tablet".into(),
             current: 0.0,
             started: now,
             next_scan: now + Duration::from_secs(86400),
@@ -50,13 +50,14 @@ impl Tablet {
 
     pub fn new(ctx: eframe::egui::Context) -> Self {
         let now = Instant::now();
-        // XWayland can expose a stylus as an XInput device while reporting no
-        // usable pressure. In a native Wayland session, prefer the tablet's
-        // evdev node instead of letting that zero report mask the fallback.
+        // WAYLAND_DISPLAY identifies the desktop session, not this app's backend.
+        // main.rs uses X11 whenever DISPLAY is available, including XWayland.
+        // Always try the desktop driver's XInput2 pressure first, as before;
+        // evdev remains the fallback when no XInput pressure source is available.
         let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
         let mut tablet = Self {
             devices: Vec::new(),
-            xinput: (!wayland).then(xinput::Input::new).flatten(),
+            xinput: xinput::Input::new(),
             wayland,
             active: None,
             name: if wayland {
@@ -164,18 +165,14 @@ impl Tablet {
         if let Some(index) = selected {
             let pen = &self.devices[index];
             if self.active.as_ref() != Some(&pen.path) {
-                let device_name = pen
-                    .device
-                    .name()
-                    .unwrap_or("Mesa digitalizadora")
-                    .to_owned();
+                let device_name = pen.device.name().unwrap_or("Drawing tablet").to_owned();
                 self.name = if self.wayland {
                     format!("{device_name} · Wayland evdev")
                 } else {
                     device_name
                 };
                 eprintln!(
-                    "Tablet: {} [{}] (pressão {}..{})",
+                    "Tablet: {} [{}] (pressure {}..{})",
                     self.name,
                     pen.path.display(),
                     pen.minimum,

@@ -124,7 +124,7 @@ impl Gallery {
         }
     }
     fn show_preview(&self, ui: &mut egui::Ui) {
-        crate::theme::caption(ui, "Prévia da camada ativa");
+        crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), "Active layer preview"));
         let (rect, _) = ui.allocate_exact_size(
             Vec2::new(
                 ui.available_width(),
@@ -192,30 +192,43 @@ impl Gallery {
                     ui.set_max_height((ui.ctx().content_rect().height() - 280.0).max(240.0));
                     ui.add(
                         egui::TextEdit::singleline(&mut self.search)
-                            .hint_text("Buscar filtro…")
+                            .hint_text(crate::i18n::ui(ui.ctx(), "Search filters…"))
                             .desired_width(ui.available_width()),
                     );
                     egui::ComboBox::from_id_salt("filter_category")
-                        .selected_text(if self.category.is_empty() {
-                            "Todas as categorias"
-                        } else {
-                            &self.category
-                        })
+                        .selected_text(crate::i18n::ui(
+                            ui.ctx(),
+                            if self.category.is_empty() {
+                                "All categories"
+                            } else {
+                                &self.category
+                            },
+                        ))
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
                                 &mut self.category,
                                 String::new(),
-                                "Todas as categorias",
+                                crate::i18n::ui(ui.ctx(), "All categories"),
                             );
                             for &category in filters::CATEGORIES {
-                                ui.selectable_value(&mut self.category, category.into(), category);
+                                ui.selectable_value(
+                                    &mut self.category,
+                                    category.into(),
+                                    crate::i18n::ui(ui.ctx(), category),
+                                );
                             }
                         });
-                    crate::theme::caption(ui, "Miniaturas demonstrativas · prévia real à direita");
+                    crate::theme::caption(
+                        ui,
+                        crate::i18n::ui(
+                            ui.ctx(),
+                            "Sample thumbnails · actual preview on the right",
+                        ),
+                    );
                     super::image_menu::processing_status(
                         ui,
                         self.job.is_some(),
-                        "Preparando miniaturas…",
+                        "Preparing thumbnails…",
                         self.error.as_deref(),
                     );
                     let query = self.search.to_lowercase();
@@ -299,10 +312,9 @@ impl Gallery {
                                         text,
                                         Color32::WHITE,
                                     );
-                                    let response = response.on_hover_text(format!(
-                                        "{} · {}",
-                                        kind.category(),
-                                        kind.label()
+                                    let response = response.on_hover_text(crate::i18n::ui(
+                                        ui.ctx(),
+                                        format!("{} · {}", kind.category(), kind.label()),
                                     ));
                                     if response.clicked() {
                                         select_kind(settings, **kind);
@@ -314,7 +326,7 @@ impl Gallery {
                             });
                         });
                     if kinds.is_empty() {
-                        ui.label("Nenhum filtro encontrado.");
+                        ui.label(crate::i18n::ui(ui.ctx(), "No filters found."));
                     }
                 },
             );
@@ -324,7 +336,7 @@ impl Gallery {
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
                     ui.set_max_height((ui.ctx().content_rect().height() - 280.0).max(240.0));
-                    ui.heading(settings.kind.label());
+                    ui.heading(crate::i18n::ui(ui.ctx(), settings.kind.label()));
                     self.show_preview(ui);
                     egui::ScrollArea::vertical()
                         .id_salt("filter_gallery_parameters")
@@ -351,11 +363,11 @@ fn select_kind(settings: &mut Settings, kind: Kind) {
 }
 fn options(kind: Kind, index: usize) -> Option<&'static [&'static str]> {
     match (kind, index) {
-        (Kind::ShapeBlur, 1) => Some(&["Disk", "Hexágono", "Square"]),
-        (Kind::AddNoise | Kind::FilmGrain | Kind::Grain, 1) => Some(&["Uniforme", "Gaussiana"]),
-        (Kind::Polar, 0) => Some(&["Retangular → polar", "Polar → retangular"]),
-        (Kind::Wind, 1) => Some(&["Da esquerda", "Da direita"]),
-        (Kind::Deinterlace, 0) => Some(&["Even Lines", "Linhas ímpares"]),
+        (Kind::ShapeBlur, 1) => Some(&["Disk", "Hexagon", "Square"]),
+        (Kind::AddNoise | Kind::FilmGrain | Kind::Grain, 1) => Some(&["Uniform", "Gaussian"]),
+        (Kind::Polar, 0) => Some(&["Rectangular → polar", "Polar → rectangular"]),
+        (Kind::Wind, 1) => Some(&["From left", "From right"]),
+        (Kind::Deinterlace, 0) => Some(&["Even Lines", "Odd lines"]),
         _ => None,
     }
 }
@@ -363,11 +375,14 @@ pub(super) fn controls(ui: &mut egui::Ui, settings: &mut Settings) {
     if settings.kind.approximation() {
         crate::theme::caption(
             ui,
-            "Implementação aproximada do PaintAtlas; não reproduz o algoritmo da Adobe.",
+            crate::i18n::ui(
+                ui.ctx(),
+                "Approximate PaintAtlas implementation; does not reproduce Adobe’s algorithm.",
+            ),
         );
     }
     if settings.kind == Kind::Custom {
-        ui.label("Matriz de convolução 3 × 3");
+        ui.label(crate::i18n::ui(ui.ctx(), "3 × 3 convolution matrix"));
         egui::Grid::new("custom_filter_kernel").show(ui, |ui| {
             for row in 0..3 {
                 for col in 0..3 {
@@ -392,7 +407,7 @@ pub(super) fn controls(ui: &mut egui::Ui, settings: &mut Settings) {
                         ui.selectable_value(value, i as f32, *label);
                     }
                 });
-        } else if control.label == "Monocromático" || control.label == "Color" {
+        } else if control.label == "Monochromatic" || control.label == "Color" {
             let mut enabled = *value > 0.5;
             if ui.checkbox(&mut enabled, control.label).changed() {
                 *value = if enabled { 1.0 } else { 0.0 };
@@ -407,7 +422,9 @@ pub(super) fn controls(ui: &mut egui::Ui, settings: &mut Settings) {
         }
     }
     if settings.kind == Kind::Displace {
-        if ui.button("Importar mapa de deslocamento…").clicked()
+        if ui
+            .button(crate::i18n::ui(ui.ctx(), "Import displacement map…"))
+            .clicked()
             && let Some(path) = rfd::FileDialog::new()
                 .add_filter("Image", &["png", "jpg", "jpeg", "webp", "bmp"])
                 .pick_file()
@@ -430,38 +447,47 @@ pub(super) fn controls(ui: &mut egui::Ui, settings: &mut Settings) {
             }
         }
         if settings.map.is_some() {
-            ui.label("Mapa externo carregado.");
-            if ui.small_button("Remover mapa").clicked() {
+            ui.label(crate::i18n::ui(ui.ctx(), "External map loaded."));
+            if ui
+                .small_button(crate::i18n::ui(ui.ctx(), "Remove map"))
+                .clicked()
+            {
                 settings.map = None;
             }
         } else {
             crate::theme::caption(
                 ui,
-                "Sem mapa externo: usa os canais vermelho/verde da própria camada.",
+                crate::i18n::ui(
+                    ui.ctx(),
+                    "No external map: uses the layer’s own red/green channels.",
+                ),
             );
         }
         if let Some(error) = ui
             .ctx()
             .data(|d| d.get_temp::<String>(egui::Id::new("filter_map_error")))
         {
-            ui.colored_label(ui.visuals().error_fg_color, error);
+            ui.colored_label(
+                ui.visuals().error_fg_color,
+                crate::i18n::ui(ui.ctx(), error),
+            );
         }
     }
-    if settings.kind.seeded() && ui.button("Nova semente").clicked() {
+    if settings.kind.seeded() && ui.button(crate::i18n::ui(ui.ctx(), "New seed")).clicked() {
         settings.seed = settings.seed.wrapping_mul(1664525).wrapping_add(1013904223);
     }
     let color_controls: &[(usize, &str)] = match settings.kind {
         Kind::Clouds | Kind::DifferenceClouds | Kind::Fibers => {
-            &[(0, "Cor principal"), (1, "Cor de fundo")]
+            &[(0, "Foreground color"), (1, "Background color")]
         }
-        Kind::NeonGlow => &[(0, "Cor do brilho")],
-        Kind::StainedGlass => &[(0, "Cor da borda")],
-        Kind::Pointillize | Kind::MosaicTiles => &[(1, "Cor de fundo")],
+        Kind::NeonGlow => &[(0, "Glow color")],
+        Kind::StainedGlass => &[(0, "Edge color")],
+        Kind::Pointillize | Kind::MosaicTiles => &[(1, "Background color")],
         _ => &[],
     };
     for &(index, label) in color_controls {
         ui.horizontal(|ui| {
-            ui.label(label);
+            ui.label(crate::i18n::ui(ui.ctx(), label));
             ui.color_edit_button_srgb(&mut settings.colors[index]);
         });
     }
@@ -477,20 +503,31 @@ pub(super) fn controls(ui: &mut egui::Ui, settings: &mut Settings) {
                 | Kind::Wind
         )
     {
-        ui.label("Bordas");
+        ui.label(crate::i18n::ui(ui.ctx(), "Edges"));
         egui::ComboBox::from_id_salt("filter_edge_mode")
-            .selected_text(match settings.edge {
-                filters::Edge::Clamp => "Repetir borda",
-                filters::Edge::Wrap => "Repetir imagem",
-                filters::Edge::Transparent => "Transparente",
-            })
+            .selected_text(crate::i18n::ui(
+                ui.ctx(),
+                match settings.edge {
+                    filters::Edge::Clamp => "Clamp edge",
+                    filters::Edge::Wrap => "Repeat image",
+                    filters::Edge::Transparent => "Transparent",
+                },
+            ))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut settings.edge, filters::Edge::Clamp, "Repetir borda");
-                ui.selectable_value(&mut settings.edge, filters::Edge::Wrap, "Repetir imagem");
+                ui.selectable_value(
+                    &mut settings.edge,
+                    filters::Edge::Clamp,
+                    crate::i18n::ui(ui.ctx(), "Clamp edge"),
+                );
+                ui.selectable_value(
+                    &mut settings.edge,
+                    filters::Edge::Wrap,
+                    crate::i18n::ui(ui.ctx(), "Repeat image"),
+                );
                 ui.selectable_value(
                     &mut settings.edge,
                     filters::Edge::Transparent,
-                    "Transparente",
+                    crate::i18n::ui(ui.ctx(), "Transparent"),
                 );
             });
     }
@@ -498,17 +535,26 @@ pub(super) fn controls(ui: &mut egui::Ui, settings: &mut Settings) {
         let mut preserve = settings.preserve_alpha || settings.alpha_lock;
         ui.add_enabled_ui(!settings.alpha_lock, |ui| {
             if ui
-                .checkbox(&mut preserve, "Preservar transparência")
+                .checkbox(
+                    &mut preserve,
+                    crate::i18n::ui(ui.ctx(), "Preserve transparency"),
+                )
                 .changed()
             {
                 settings.preserve_alpha = preserve;
             }
         });
         if settings.alpha_lock {
-            crate::theme::caption(ui, "A camada está com o alfa bloqueado.");
+            crate::theme::caption(
+                ui,
+                crate::i18n::ui(ui.ctx(), "The layer’s alpha is locked."),
+            );
         }
     }
-    ui.add(egui::Slider::new(&mut settings.mix, 0.0..=100.0).text("Intensidade do efeito (%)"));
+    ui.add(
+        egui::Slider::new(&mut settings.mix, 0.0..=100.0)
+            .text(crate::i18n::ui(ui.ctx(), "Effect strength (%)")),
+    );
 }
 impl PaintAtlas {
     pub(super) fn filter_shortcut(&mut self, ctx: &egui::Context, action: Shortcut) -> bool {
@@ -527,7 +573,7 @@ impl PaintAtlas {
             if let Some(filter) = &self.last_filter {
                 self.open_filter(ctx, filter.kind, false, true);
             } else {
-                self.status = "Aplique um filtro antes de repetir.".into();
+                self.status = "Apply a filter before repeating.".into();
             }
             return true;
         }
@@ -564,11 +610,11 @@ impl PaintAtlas {
     pub(super) fn filter_menu(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let enabled = self.image_operation_allowed();
-        let menu = ui.menu_button("Filtro", |ui| {
+        let menu = ui.menu_button(crate::i18n::ui(ui.ctx(), "Filter"), |ui| {
             ui.add_enabled_ui(enabled, |ui| {
                 let label = self.last_filter.as_ref().map_or_else(
-                    || "Último filtro".to_owned(),
-                    |f| format!("Último filtro: {}", f.kind.label()),
+                    || "Last filter".to_owned(),
+                    |f| format!("Last filter: {}", f.kind.label()),
                 );
                 if ui
                     .add_enabled(
@@ -596,14 +642,15 @@ impl PaintAtlas {
                 }
                 ui.separator();
                 for &category in filters::CATEGORIES {
-                    let submenu = ui.menu_button(category, |ui| {
+                    let submenu = ui.menu_button(crate::i18n::ui(ui.ctx(), category), |ui| {
                         for &kind in Kind::ALL.iter().filter(|kind| kind.category() == category) {
                             if ui
-                                .button(
+                                .button(crate::i18n::ui(
+                                    ui.ctx(),
                                     self.settings
                                         .shortcuts
                                         .menu(kind.shortcut(), &format!("{}…", kind.label())),
-                                )
+                                ))
                                 .clicked()
                             {
                                 self.open_filter(&ctx, kind, false, false);
@@ -696,7 +743,7 @@ mod tests {
                     ..Default::default()
                 },
                 |ctx| {
-                    egui::Window::new("Gallery layout test")
+                    egui::Window::new(crate::i18n::ui(ctx, "Gallery layout test"))
                         .default_pos(egui::pos2(20.0, 20.0))
                         .show(ctx, |ui| {
                             ui.set_width(920.0);
@@ -731,7 +778,7 @@ mod tests {
         for shape in &output.shapes {
             inspect(&shape.shape, shape.clip_rect, &mut labels);
         }
-        for label in ["Média", "Blur", "Blur More", "Intensidade do efeito (%)"] {
+        for label in ["Average", "Blur", "Blur More", "Effect strength (%)"] {
             assert!(
                 labels.iter().any(|text| text.contains(label)),
                 "Clipped or missing: {label}"

@@ -31,6 +31,8 @@ mod ruler_ui;
 mod scrubby_zoom;
 #[path = "selection_ui.rs"]
 mod selection_ui;
+#[path = "startup_ui.rs"]
+mod startup_ui;
 use crate::document::{Brush, Document, History, MAX_SIDE, Tool};
 use crate::{
     painting::{MAX_BRUSH_SIZE, Stabilizer, pressure_size},
@@ -198,6 +200,9 @@ pub struct PaintAtlas {
     new_dialog: bool,
     startup_canvas_required: bool,
     splash_background: Option<egui::TextureHandle>,
+    splash_blur: Option<egui::TextureHandle>,
+    startup_preview: Option<egui::Rect>,
+    startup_transition: Option<startup_ui::Transition>,
     new_width: u32,
     new_height: u32,
     white: bool,
@@ -226,7 +231,8 @@ impl PaintAtlas {
             app.preferences.start_update_check();
         }
         if app.screenshot.is_none()
-            || std::env::var("PAINTATLAS_SMOKE_SCENE").is_ok_and(|scene| scene == "startup")
+            || std::env::var("PAINTATLAS_SMOKE_SCENE")
+                .is_ok_and(|scene| scene.starts_with("startup"))
         {
             app.require_initial_canvas();
         }
@@ -273,6 +279,7 @@ impl PaintAtlas {
             .as_ref()
             .and_then(|p| Settings::load(p).ok())
             .unwrap_or_default();
+        crate::i18n::set_language(ctx, settings.language);
         crate::theme::install_fonts(ctx);
         crate::theme::apply(ctx, &settings.appearance);
         let workspace_path = std::env::var_os("PAINTATLAS_WORKSPACE")
@@ -370,10 +377,13 @@ impl PaintAtlas {
             selected_layers: Default::default(),
             collapsed_groups: Default::default(),
             gesture: None,
-            status: "Pronto para desenhar".into(),
+            status: "Ready to draw".into(),
             new_dialog: false,
             startup_canvas_required: false,
             splash_background: None,
+            splash_blur: None,
+            startup_preview: None,
+            startup_transition: None,
             new_width: canvas.width,
             new_height: canvas.height,
             white: canvas.paper,
@@ -384,7 +394,7 @@ impl PaintAtlas {
             workspace: crate::workspace::Workspace::new(workspace_path),
             workspace_actions: Vec::new(),
             size_palette: crate::brush_sizes::BrushSizes::default(),
-            rename: "Camada 1".into(),
+            rename: "Layer 1".into(),
             rename_layer_focus: false,
             opacity_edit: false,
             layer_motion: None,
@@ -501,9 +511,9 @@ impl PaintAtlas {
             if scene == "textures" || scene == "textures-editor" {
                 app.doc = Document::new(800, 600, true);
                 for (row, (file, name)) in [
-                    ("hard-square.png", "Ponta quadrada"),
+                    ("hard-square.png", "Square tip"),
                     ("hexagon.png", "Hexagon"),
-                    ("grass-detailer.png", "Grama"),
+                    ("grass-detailer.png", "Grass"),
                 ]
                 .into_iter()
                 .enumerate()
@@ -737,9 +747,9 @@ impl PaintAtlas {
             }
             if scene == "layer-groups" || scene == "group-effects" {
                 app.doc.add_layer();
-                app.doc.layers[2].name = "Detalhes".into();
+                app.doc.layers[2].name = "Details".into();
                 app.doc.group_layers(&[1, 2]);
-                app.doc.layers[app.doc.active].name = "Personagem".into();
+                app.doc.layers[app.doc.active].name = "Character".into();
                 app.rename = app.doc.layers[app.doc.active].name.clone();
                 app.doc.layers[app.doc.active].label_color = Some([96, 177, 227]);
                 app.changed();
@@ -946,6 +956,9 @@ impl PaintAtlas {
     }
     fn open_brush_editor(&mut self) {
         let mut p = self.current_preset();
+        p.name = self
+            .settings
+            .preset_display_name(self.settings.selected, self.settings.language);
         let base = format!("{} — copy", p.name.chars().take(80).collect::<String>());
         p.name = base.clone();
         let mut n = 2;
@@ -977,7 +990,7 @@ impl PaintAtlas {
                 self.groups_prepared = false;
                 self.doc.damage = Some([0, 0, self.doc.width as usize, self.doc.height as usize]);
                 self.doc.dirty_tiles.clear();
-                self.status = format!("Não foi possível reconstruir os grupos: {error}");
+                self.status = format!("Could not rebuild groups: {error}");
             }
         }
         self.refresh = true;
@@ -1005,7 +1018,7 @@ impl PaintAtlas {
                     self.groups_prepared = false;
                     self.doc.damage =
                         Some([0, 0, self.doc.width as usize, self.doc.height as usize]);
-                    self.status = format!("Não foi possível reconstruir os grupos: {error}");
+                    self.status = format!("Could not rebuild groups: {error}");
                 }
             }
             self.refresh = true;
@@ -1045,6 +1058,8 @@ impl PaintAtlas {
         }
     }
     fn reset(&mut self, doc: Document, path: Option<PathBuf>, dirty: bool) {
+        self.startup_transition = None;
+        self.startup_preview = None;
         self.scrubby_zoom.clear();
         self.brush_hud.clear();
         self.ruler_ui = ruler_ui::State::default();
@@ -1119,7 +1134,7 @@ impl PaintAtlas {
             Action::Open => {
                 if let Some(paths) = rfd::FileDialog::new()
                     .add_filter(
-                        "Projetos ou imagens",
+                        "Projects or images",
                         &["patlas", "png", "jpg", "jpeg", "webp", "gif", "bmp"],
                     )
                     .pick_files()
@@ -1165,7 +1180,7 @@ impl PaintAtlas {
         self.commit_name();
         let path = if save_as || self.path.is_none() {
             rfd::FileDialog::new()
-                .add_filter("Projeto PaintAtlas", &["patlas"])
+                .add_filter("PaintAtlas project", &["patlas"])
                 .set_file_name("Untitled.patlas")
                 .save_file()
                 .map(|mut p| {
@@ -1198,8 +1213,8 @@ impl PaintAtlas {
             return;
         }
         if let Some(mut path) = rfd::FileDialog::new()
-            .add_filter("Image PNG", &["png"])
-            .set_file_name("desenho.png")
+            .add_filter("PNG image", &["png"])
+            .set_file_name("drawing.png")
             .save_file()
         {
             path.set_extension("png");
@@ -1390,12 +1405,12 @@ impl PaintAtlas {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new("PAINT")
+                        egui::RichText::new(crate::i18n::ui(ui.ctx(), "PAINT"))
                             .strong()
                             .size(20.0)
                             .color(crate::theme::accent(ctx)),
                     );
-                    ui.label(egui::RichText::new("ATLAS").size(20.0));
+                    ui.label(egui::RichText::new(crate::i18n::ui(ui.ctx(), "ATLAS")).size(20.0));
                     ui.separator();
                     ui.menu_button(
                         crate::i18n::text(self.settings.language, "app.file"),
@@ -1553,7 +1568,7 @@ impl PaintAtlas {
                                 if ui
                                     .selectable_label(
                                         present,
-                                        panel.localized_title(self.settings.language),
+                                        crate::i18n::ui(ui.ctx(), panel.localized_title(self.settings.language)),
                                     )
                                     .clicked()
                                 {
@@ -1647,12 +1662,12 @@ impl PaintAtlas {
                     self.ruler_menu(ui);
                     ui.separator();
                     let zoom_out = self.settings.shortcuts.label(Shortcut::ZoomOutModifier);
-                    if ui.checkbox(&mut self.settings.scrubby_zoom, "Scrubby Zoom")
-                        .on_hover_text(format!("Ligado: arraste para aproximar/afastar. Clique aproxima; {zoom_out} + clique afasta.")).changed() {
+                    if ui.checkbox(&mut self.settings.scrubby_zoom, crate::i18n::ui(ui.ctx(), "Scrubby Zoom"))
+                        .on_hover_text(crate::i18n::ui(ui.ctx(), format!("Enabled: drag to zoom in/out. Click to zoom in; {zoom_out} + click to zoom out."))).changed() {
                         self.settings_pending = true;
                         self.settings_edited = std::time::Instant::now();
                     }
-                    crate::theme::caption(ui, format!("Zoom: clique aproxima · {zoom_out} + clique afasta"));
+                    crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), format!("Zoom: click to zoom in · {zoom_out} + click to zoom out")));
                 });
                 ui.add_space(4.0);
             });
@@ -1660,7 +1675,7 @@ impl PaintAtlas {
             .frame(egui::Frame::side_top_panel(&ctx.style()).corner_radius(8))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(&self.status).small());
+                    ui.label(egui::RichText::new(crate::i18n::ui(ui.ctx(), &self.status)).small());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(format!(
                             "{} × {} px   •   {}",
@@ -1670,7 +1685,10 @@ impl PaintAtlas {
                                 .replace("{}", &self.doc.layers.len().to_string())
                         ));
                         ui.separator();
-                        ui.label(format!("{}%", (self.zoom * 100.0).round()));
+                        ui.label(crate::i18n::ui(
+                            ui.ctx(),
+                            format!("{}%", (self.zoom * 100.0).round()),
+                        ));
                     });
                 });
             });
@@ -1710,14 +1728,13 @@ impl PaintAtlas {
                                 }
                             }
                             Err(error) => {
-                                self.status =
-                                    format!("Não foi possível atualizar a composição: {error}");
+                                self.status = format!("Could not update the composite: {error}");
                                 fallback_updated = false;
                             }
                         }
                     }
                     Err(error) => {
-                        self.status = format!("Não foi possível atualizar a composição: {error}");
+                        self.status = format!("Could not update the composite: {error}");
                         fallback_updated = false;
                     }
                 }
@@ -1843,8 +1860,7 @@ impl PaintAtlas {
                     } else {
                         let mut textures = Vec::new();
                         if let Err(error) = textures.try_reserve_exact(uploads.len()) {
-                            self.status =
-                                format!("Não foi possível atualizar as texturas: {error}");
+                            self.status = format!("Could not update textures: {error}");
                             self.refresh = true;
                             ctx.request_repaint_after(std::time::Duration::from_millis(250));
                             return;
@@ -1859,7 +1875,7 @@ impl PaintAtlas {
                     ctx.request_repaint();
                 }
                 Err(error) => {
-                    self.status = format!("Não foi possível atualizar as texturas: {error}");
+                    self.status = format!("Could not update textures: {error}");
                     self.refresh = true;
                     ctx.request_repaint_after(std::time::Duration::from_millis(250));
                 }
@@ -1973,11 +1989,14 @@ impl PaintAtlas {
         painter.text(
             Pos2::new(text_rect.min.x, rect.min.y + 10.0),
             egui::Align2::LEFT_TOP,
-            if layer.group.is_some() {
-                format!("▣ {}", layer.name)
-            } else {
-                layer.name.clone()
-            },
+            crate::i18n::ui(
+                ui.ctx(),
+                if layer.group.is_some() {
+                    format!("▣ {}", layer.name)
+                } else {
+                    layer.name.clone()
+                },
+            ),
             egui::FontId::proportional(12.0),
             visuals.text_color(),
         );
@@ -1985,7 +2004,7 @@ impl PaintAtlas {
             row_painter.text(
                 preview_box.right_bottom(),
                 egui::Align2::RIGHT_BOTTOM,
-                "R",
+                crate::i18n::ui(ui.ctx(), "R"),
                 egui::FontId::proportional(11.0),
                 Color32::from_rgb(190, 155, 255),
             );
@@ -2000,14 +2019,14 @@ impl PaintAtlas {
             layer.opacity * 100.0,
             mode_info,
             if layer.alpha_lock {
-                " · alfa bloqueado"
+                " · alpha locked"
             } else {
                 ""
             },
             if layer.effects.is_empty() {
                 String::new()
             } else {
-                format!(" · {} efeito(s)", layer.effects.len())
+                format!(" · {} effect(s)", layer.effects.len())
             }
         );
         painter.text(
@@ -2018,7 +2037,10 @@ impl PaintAtlas {
             Color32::from_gray(150),
         );
         crate::theme::feedback(ui, &response);
-        let response = response.on_hover_text(format!("{}\nArraste para reordenar", layer.name));
+        let response = response.on_hover_text(crate::i18n::ui(
+            ui.ctx(),
+            format!("{}\nDrag to reorder", layer.name),
+        ));
         response.dnd_set_drag_payload(LayerDrag(index));
         if response.drag_started() {
             self.layer_row_slides.clear();
@@ -2158,6 +2180,11 @@ impl PaintAtlas {
             self.smooth_fit = false;
             self.fit = false;
         }
+        if self.startup_transition.is_some() {
+            // Layout the destination, but accept no drawing/navigation during the handoff.
+            self.last_canvas_bounds = Some(bounds);
+            return;
+        }
         self.pressure = self.tablet.pressure().unwrap_or(if self.gesture.is_some() {
             self.pressure
         } else {
@@ -2291,18 +2318,16 @@ impl PaintAtlas {
                 if self.doc.contains(point) {
                     if alt || self.tool == Tool::Picker {
                         if let Err(error) = self.picker.begin(&self.doc) {
-                            self.status =
-                                format!("Não foi possível iniciar o conta-gotas: {error}");
+                            self.status = format!("Could not start the eyedropper: {error}");
                         }
                     } else if self.doc.layers[self.doc.active].group.is_some() {
-                        self.status = "Selecione uma camada dentro do grupo para desenhar.".into();
+                        self.status = "Select a layer inside the group to draw.".into();
                     } else if !self.doc.layers[self.doc.active].visible {
-                        self.status = "Ative a visibilidade da camada para desenhar.".into();
+                        self.status = "Make the layer visible to draw.".into();
                     } else if self.tool == Tool::Eraser
                         && self.doc.layers[self.doc.active].alpha_lock
                     {
-                        self.status =
-                            "Borracha bloqueada: desative o bloqueio de transparência.".into();
+                        self.status = "Eraser locked: disable Lock transparency.".into();
                     } else {
                         if matches!(self.tool, Tool::Brush | Tool::Eraser) {
                             self.doc.damage = None;
@@ -2543,13 +2568,13 @@ impl PaintAtlas {
             && std::env::var("PAINTATLAS_SMOKE_SCENE").is_ok_and(|s| s.starts_with("stabilizer"))
         {
             for (y, label) in [
-                (90.0, "0% — sem estabilização"),
-                (330.0, "100% — estabilização forte"),
+                (90.0, "0% — no stabilization"),
+                (330.0, "100% — strong stabilization"),
             ] {
                 painter.text(
                     view.screen([100.0, y]),
                     egui::Align2::LEFT_TOP,
-                    label,
+                    crate::i18n::ui(ui.ctx(), label),
                     egui::FontId::proportional(17.0),
                     Color32::from_rgb(50, 60, 70),
                 );
@@ -2750,7 +2775,10 @@ impl PaintAtlas {
             crate::i18n::text(self.settings.language, "ui.pressure_value")
                 .replace("{}", &format!("{:.0}%", self.tablet.current * 100.0)),
         );
-        ui.label(self.tool.localized_name(self.settings.language));
+        ui.label(crate::i18n::ui(
+            ui.ctx(),
+            self.tool.localized_name(self.settings.language),
+        ));
         if self.tool == Tool::Ruler {
             self.ruler_properties(ui);
             return;
@@ -2758,9 +2786,12 @@ impl PaintAtlas {
         if self.tool == Tool::Zoom {
             crate::theme::caption(
                 ui,
-                format!(
-                    "Clique: aproximar\n{} + clique: afastar\nArraste: zoom contínuo quando Scrubby Zoom está ligado.",
-                    self.settings.shortcuts.label(Shortcut::ZoomOutModifier)
+                crate::i18n::ui(
+                    ui.ctx(),
+                    format!(
+                        "Click: zoom in\n{} + click: zoom out\nDrag: continuous zoom when Scrubby Zoom is enabled.",
+                        self.settings.shortcuts.label(Shortcut::ZoomOutModifier)
+                    ),
                 ),
             );
             return;
@@ -2787,7 +2818,7 @@ impl PaintAtlas {
 
         ui.add(
             egui::Slider::new(&mut self.size, 1.0..=MAX_BRUSH_SIZE)
-                .text("px")
+                .text(crate::i18n::ui(ui.ctx(), "px"))
                 .logarithmic(true),
         );
         if ui
@@ -2896,6 +2927,7 @@ impl PaintAtlas {
             } else {
                 self.settings.brushes[i].clone()
             };
+            let display_name = self.settings.preset_display_name(i, self.settings.language);
             let tip = preset
                 .texture
                 .as_deref()
@@ -2911,7 +2943,7 @@ impl PaintAtlas {
                     egui::WidgetType::Button,
                     ui.is_enabled(),
                     selected == i,
-                    &preset.name,
+                    &display_name,
                 )
             });
             let visuals = crate::theme::row_visuals(ui, &response, selected == i);
@@ -2929,7 +2961,7 @@ impl PaintAtlas {
             ui.painter().with_clip_rect(text_rect).text(
                 text_rect.min,
                 egui::Align2::LEFT_TOP,
-                &preset.name,
+                &display_name,
                 egui::FontId::proportional(13.0),
                 visuals.text_color(),
             );
@@ -2946,11 +2978,14 @@ impl PaintAtlas {
                 );
             }
             if response
-                .on_hover_text(format!(
-                    "{} · {:.0} px{}",
-                    preset.name,
-                    preset.size,
-                    if preset.eraser { " · borracha" } else { "" }
+                .on_hover_text(crate::i18n::ui(
+                    ui.ctx(),
+                    format!(
+                        "{} · {:.0} px{}",
+                        display_name,
+                        preset.size,
+                        if preset.eraser { " · eraser" } else { "" }
+                    ),
                 ))
                 .clicked()
             {
@@ -2964,37 +2999,46 @@ impl PaintAtlas {
         if ui
             .add_enabled(
                 self.settings.brushes.len() < 256,
-                egui::Button::new("+ Adicionar pincel…"),
+                egui::Button::new(crate::i18n::ui(ui.ctx(), "+ Add brush…")),
             )
             .clicked()
         {
             self.open_brush_editor();
         }
-        if ui.small_button("Restaurar este pincel").clicked() {
+        if ui
+            .small_button(crate::i18n::ui(ui.ctx(), "Reset this brush"))
+            .clicked()
+        {
             let i = self.settings.selected;
             self.settings.brushes[i] = self.settings.originals[i].clone();
             self.apply_preset(i);
             self.settings_pending = true;
             self.settings_edited = std::time::Instant::now();
         }
-        crate::theme::caption(ui, "Ajustes salvos automaticamente");
+        crate::theme::caption(
+            ui,
+            crate::i18n::ui(ui.ctx(), "Settings saved automatically"),
+        );
     }
     fn tip_selector_ui(&mut self, ui: &mut egui::Ui, selected: &mut Option<String>) {
-        ui.label("Ponta / textura");
+        ui.label(crate::i18n::ui(ui.ctx(), "Tip / texture"));
         let name = selected
             .as_deref()
-            .map_or("Circular (sem textura)", |id| self.tip_library.name(id))
+            .map_or("Round (no texture)", |id| self.tip_library.name(id))
             .to_owned();
         ui.menu_button(name, |ui| {
             ui.set_width(330.0);
             if ui
-                .selectable_label(selected.is_none(), "Circular (sem textura)")
+                .selectable_label(
+                    selected.is_none(),
+                    crate::i18n::ui(ui.ctx(), "Round (no texture)"),
+                )
                 .clicked()
             {
                 *selected = None;
                 ui.close();
             }
-            crate::theme::caption(ui, "Escolha uma ponta do pack");
+            crate::theme::caption(ui, crate::i18n::ui(ui.ctx(), "Choose a tip from the pack"));
             egui::ScrollArea::vertical().max_height(330.0).show_rows(
                 ui,
                 91.0,
@@ -3077,24 +3121,29 @@ impl PaintAtlas {
                 },
             );
         });
-        if ui.small_button("Importar imagem de ponta…").clicked()
+        if ui
+            .small_button(crate::i18n::ui(ui.ctx(), "Import brush-tip image…"))
+            .clicked()
             && let Some(path) = rfd::FileDialog::new()
-                .add_filter("Image de ponta", &["png", "jpg", "jpeg", "webp"])
+                .add_filter("Brush-tip image", &["png", "jpg", "jpeg", "webp"])
                 .pick_file()
         {
             match self.tip_library.import(&path) {
                 Ok(id) => {
                     *selected = Some(id);
-                    self.status = "Ponta importada e copiada para sua biblioteca.".into();
+                    self.status = "Brush tip imported and copied to your library.".into();
                 }
-                Err(e) => self.status = format!("Erro ao importar ponta: {e}"),
+                Err(e) => self.status = format!("Could not import the brush tip: {e}"),
             }
         }
         if selected
             .as_deref()
             .is_some_and(|id| self.tip_library.get(id).is_err())
         {
-            ui.colored_label(Color32::LIGHT_RED, "Brush tip not found; using a circle.");
+            ui.colored_label(
+                Color32::LIGHT_RED,
+                crate::i18n::ui(ui.ctx(), "Brush tip not found; using a circle."),
+            );
         }
     }
     fn brush_editor_ui(&mut self, ctx: &egui::Context) {
@@ -3104,7 +3153,7 @@ impl PaintAtlas {
         let mut open = true;
         let mut create = false;
         let mut cancel = false;
-        egui::Window::new("Criar pincel")
+        egui::Window::new(crate::i18n::ui(ctx, "Create brush"))
             .id(egui::Id::new("create_brush"))
             .open(&mut open)
             .resizable(true)
@@ -3113,40 +3162,52 @@ impl PaintAtlas {
                 egui::ScrollArea::vertical()
                     .max_height(840.0)
                     .show(ui, |ui| {
-                        ui.label("Nome do preset");
+                        ui.label(crate::i18n::ui(ui.ctx(), "Preset name"));
                         ui.add(egui::TextEdit::singleline(&mut draft.name).char_limit(100));
                         ui.horizontal_wrapped(|ui| {
-                            ui.label("Tipo");
-                            ui.selectable_value(&mut draft.eraser, false, "Pincel");
-                            ui.selectable_value(&mut draft.eraser, true, "Borracha");
+                            ui.label(crate::i18n::ui(ui.ctx(), "Type"));
+                            ui.selectable_value(
+                                &mut draft.eraser,
+                                false,
+                                crate::i18n::ui(ui.ctx(), "Brush"),
+                            );
+                            ui.selectable_value(
+                                &mut draft.eraser,
+                                true,
+                                crate::i18n::ui(ui.ctx(), "Eraser"),
+                            );
                         });
-                        ui.label("Stroke Preview");
+                        ui.label(crate::i18n::ui(ui.ctx(), "Stroke Preview"));
                         self.brush_preview(ui, &draft);
                         ui.separator();
-                        ui.label("Tamanho");
+                        ui.label(crate::i18n::ui(ui.ctx(), "Size"));
                         ui.add(
                             egui::Slider::new(&mut draft.size, 1.0..=MAX_BRUSH_SIZE)
                                 .logarithmic(true)
                                 .suffix(" px"),
                         );
-                        ui.label("Opacidade");
+                        ui.label(crate::i18n::ui(ui.ctx(), "Opacity"));
                         ui.add(egui::Slider::new(&mut draft.opacity, 0.01..=1.0));
-                        ui.label("Dureza");
+                        ui.label(crate::i18n::ui(ui.ctx(), "Hardness"));
                         ui.add(egui::Slider::new(&mut draft.hardness, 0.0..=1.0));
                         self.tip_selector_ui(ui, &mut draft.texture);
-                        ui.label("Stamp Spacing");
+                        ui.label(crate::i18n::ui(ui.ctx(), "Stamp Spacing"));
                         ui.add(egui::Slider::new(&mut draft.spacing, 0.05..=2.0).logarithmic(true));
-                        ui.label("Stabilization");
+                        ui.label(crate::i18n::ui(ui.ctx(), "Stabilization"));
                         ui.add(
                             egui::Slider::new(&mut draft.stabilization, 0.0..=100.0)
                                 .integer()
                                 .suffix(" %"),
                         );
-                        crate::theme::toggle(ui, &mut draft.pressure, "Pen pressure controls size");
+                        crate::theme::toggle(
+                            ui,
+                            &mut draft.pressure,
+                            &crate::i18n::ui(ui.ctx(), "Pen pressure controls size"),
+                        );
                         ui.add_enabled_ui(draft.pressure, |ui| {
-                            ui.label("Curva: leve ← → firme");
+                            ui.label(crate::i18n::ui(ui.ctx(), "Curve: light ← → firm"));
                             ui.add(egui::Slider::new(&mut draft.gamma, 0.3..=3.0));
-                            ui.label("Minimum size with pressure");
+                            ui.label(crate::i18n::ui(ui.ctx(), "Minimum size with pressure"));
                             ui.add(egui::Slider::new(&mut draft.minimum, 0.01..=1.0));
                         });
                         if !self.brush_editor_error.is_empty() {
@@ -3154,8 +3215,8 @@ impl PaintAtlas {
                         }
                         ui.separator();
                         ui.horizontal(|ui| {
-                            create = crate::theme::button(ui, "Criar preset").clicked();
-                            cancel = crate::theme::button(ui, "Cancelar").clicked();
+                            create = crate::theme::button(ui, "Create preset").clicked();
+                            cancel = crate::theme::button(ui, "Cancel").clicked();
                         });
                     });
             });
@@ -3171,18 +3232,18 @@ impl PaintAtlas {
     }
     fn colors_ui(&mut self, ui: &mut egui::Ui) {
         ui.add_space(12.0);
-        section(ui, "COR");
+        section(ui, "COLOR");
         let old_mode = self.settings.triangular_color_selector;
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(
                 &mut self.settings.triangular_color_selector,
                 false,
-                "Retangular",
+                crate::i18n::ui(ui.ctx(), "Rectangular"),
             );
             ui.selectable_value(
                 &mut self.settings.triangular_color_selector,
                 true,
-                "Triangular",
+                crate::i18n::ui(ui.ctx(), "Triangular"),
             );
         });
         if old_mode != self.settings.triangular_color_selector {
@@ -3222,11 +3283,14 @@ impl PaintAtlas {
             });
         }
         ui.label(
-            egui::RichText::new(format!(
-                "#{:02X}{:02X}{:02X}",
-                self.color.r(),
-                self.color.g(),
-                self.color.b()
+            egui::RichText::new(crate::i18n::ui(
+                ui.ctx(),
+                format!(
+                    "#{:02X}{:02X}{:02X}",
+                    self.color.r(),
+                    self.color.g(),
+                    self.color.b()
+                ),
             ))
             .monospace(),
         );
@@ -3267,11 +3331,11 @@ impl PaintAtlas {
         if !self.layer_row_slides.is_empty() {
             ctx.request_repaint();
         }
-        section(ui, "CAMADAS");
+        section(ui, "LAYERS");
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(self.doc.can_add(), egui::Button::new("+"))
-                .on_hover_text("Nova camada")
+                .on_hover_text(crate::i18n::ui(ui.ctx(), "New layer"))
                 .clicked()
             {
                 self.checkpoint();
@@ -3281,13 +3345,19 @@ impl PaintAtlas {
                 self.changed();
             }
             if ui
-                .add_enabled(self.doc.can_add(), egui::Button::new("Duplicar"))
+                .add_enabled(
+                    self.doc.can_add(),
+                    egui::Button::new(crate::i18n::ui(ui.ctx(), "Duplicate")),
+                )
                 .clicked()
             {
                 self.apply_layer_action(self.doc.active, layer_menu::LayerAction::Duplicate);
             }
             if ui
-                .add_enabled(self.doc.layers.len() > 1, egui::Button::new("Excluir"))
+                .add_enabled(
+                    self.doc.layers.len() > 1,
+                    egui::Button::new(crate::i18n::ui(ui.ctx(), "Delete")),
+                )
                 .clicked()
             {
                 self.apply_layer_action(self.doc.active, layer_menu::LayerAction::Delete);
@@ -3295,8 +3365,11 @@ impl PaintAtlas {
         });
         ui.horizontal_wrapped(|ui| {
             if ui
-                .button("Agrupar")
-                .on_hover_text(self.settings.shortcuts.label(Shortcut::LayerGroup))
+                .button(crate::i18n::ui(ui.ctx(), "Group"))
+                .on_hover_text(crate::i18n::ui(
+                    ui.ctx(),
+                    self.settings.shortcuts.label(Shortcut::LayerGroup),
+                ))
                 .clicked()
             {
                 self.apply_layer_action(self.doc.active, layer_menu::LayerAction::Group);
@@ -3304,12 +3377,12 @@ impl PaintAtlas {
             if ui
                 .add_enabled(
                     self.selected_layer_indices().len() > 1,
-                    egui::Button::new("Mesclar"),
+                    egui::Button::new(crate::i18n::ui(ui.ctx(), "Merge")),
                 )
                 .on_hover_text(
                     self.settings
                         .shortcuts
-                        .menu(Shortcut::LayerMerge, "Mesclar selecionadas"),
+                        .menu(Shortcut::LayerMerge, "Merge selected"),
                 )
                 .clicked()
             {
@@ -3318,22 +3391,29 @@ impl PaintAtlas {
         });
         crate::theme::caption(
             ui,
-            format!(
-                "{}+clique: múltiplas · {}+clique: intervalo",
-                self.settings
-                    .shortcuts
-                    .label(Shortcut::LayerToggleSelection),
-                self.settings.shortcuts.label(Shortcut::LayerRangeSelection)
+            crate::i18n::ui(
+                ui.ctx(),
+                format!(
+                    "{}+click: multiple · {}+click: range",
+                    self.settings
+                        .shortcuts
+                        .label(Shortcut::LayerToggleSelection),
+                    self.settings.shortcuts.label(Shortcut::LayerRangeSelection)
+                ),
             ),
         );
-        ui.label("Modo de mesclagem");
+        ui.label(crate::i18n::ui(ui.ctx(), "Blend mode"));
         let mut mode = self.doc.layers[self.doc.active].blend_mode;
         egui::ComboBox::from_id_salt("layer_blend_mode")
-            .selected_text(mode.label())
+            .selected_text(crate::i18n::ui(ui.ctx(), mode.label()))
             .width(ui.available_width())
             .show_ui(ui, |ui| {
                 for option in crate::blend::BlendMode::ALL {
-                    ui.selectable_value(&mut mode, option, option.label());
+                    ui.selectable_value(
+                        &mut mode,
+                        option,
+                        crate::i18n::ui(ui.ctx(), option.label()),
+                    );
                 }
             });
         if mode != self.doc.layers[self.doc.active].blend_mode {
@@ -3348,7 +3428,7 @@ impl PaintAtlas {
             self.dirty = true;
             ctx.request_repaint();
         }
-        ui.label("Opacidade da camada");
+        ui.label(crate::i18n::ui(ui.ctx(), "Layer opacity"));
         let mut opacity = self.doc.layers[self.doc.active].opacity;
         let response = ui.add(egui::Slider::new(&mut opacity, 0.0..=1.0));
         if response.changed() {
@@ -3399,7 +3479,7 @@ impl PaintAtlas {
                         let mut visible = self.doc.layers[index].visible;
                         if ui
                             .checkbox(&mut visible, "")
-                            .on_hover_text("Visibilidade")
+                            .on_hover_text(crate::i18n::ui(ui.ctx(), "Visibility"))
                             .changed()
                         {
                             self.checkpoint();
@@ -3509,7 +3589,7 @@ impl PaintAtlas {
             self.apply_layer_action(index, action);
             ctx.request_repaint();
         }
-        ui.label("Nome da camada");
+        ui.label(crate::i18n::ui(ui.ctx(), "Layer name"));
         let response = ui.add(egui::TextEdit::singleline(&mut self.rename).desired_width(208.0));
         if self.rename_layer_focus {
             response.request_focus();
@@ -3524,10 +3604,11 @@ impl PaintAtlas {
             self.changed();
         }
         let mut locked = self.doc.layers[self.doc.active].alpha_lock;
-        if crate::theme::toggle(ui, &mut locked, "Alpha Lock")
-            .on_hover_text(
-                "Pinta somente nas áreas já desenhadas. Borracha e limpeza ficam bloqueadas.",
-            )
+        if crate::theme::toggle(ui, &mut locked, &crate::i18n::ui(ui.ctx(), "Alpha Lock"))
+            .on_hover_text(crate::i18n::ui(
+                ui.ctx(),
+                "Paint only over existing pixels. Erasing and clearing are disabled.",
+            ))
             .changed()
         {
             self.checkpoint();
@@ -3538,7 +3619,7 @@ impl PaintAtlas {
             .add_enabled(
                 !self.doc.layers[self.doc.active].alpha_lock
                     && self.doc.layers[self.doc.active].group.is_none(),
-                egui::Button::new("Limpar camada"),
+                egui::Button::new(crate::i18n::ui(ui.ctx(), "Clear layer")),
             )
             .clicked()
         {
@@ -3547,7 +3628,16 @@ impl PaintAtlas {
             self.changed();
         }
         ui.add_space(12.0);
-        ui.add(egui::Label::new(egui::RichText::new("As camadas superiores aparecem na frente. Salve em .patlas para continuar editando.").small()).wrap());
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(crate::i18n::ui(
+                    ui.ctx(),
+                    "Top layers appear in front. Save as .patlas to keep editing.",
+                ))
+                .small(),
+            )
+            .wrap(),
+        );
     }
     fn reorder_layer(&mut self, source: usize, slot: usize) {
         if source >= self.doc.layers.len() || slot > self.doc.layers.len() {
@@ -3602,17 +3692,17 @@ impl PaintAtlas {
     }
     fn navigation_ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            ui.label("Vista");
+            ui.label(crate::i18n::ui(ui.ctx(), "View"));
             if ui
                 .button("−15°")
-                .on_hover_text("Girar para a esquerda (Q)")
+                .on_hover_text(crate::i18n::ui(ui.ctx(), "Rotate left (Q)"))
                 .clicked()
             {
                 self.request_rotation(-15.0_f32.to_radians());
             }
             if ui
                 .button("+15°")
-                .on_hover_text("Girar para a direita (W)")
+                .on_hover_text(crate::i18n::ui(ui.ctx(), "Rotate right (W)"))
                 .clicked()
             {
                 self.request_rotation(15.0_f32.to_radians());
@@ -3627,24 +3717,30 @@ impl PaintAtlas {
             crate::theme::toggle(
                 ui,
                 &mut self.mirrored,
-                &self.settings.shortcuts.menu(Shortcut::Mirror, "Espelhar"),
+                &self.settings.shortcuts.menu(Shortcut::Mirror, "Mirror"),
             );
-            if crate::theme::button(ui, "Restaurar vista").clicked() {
+            if crate::theme::button(ui, "Reset view").clicked() {
                 self.set_rotation_target(0.0);
                 self.mirrored = false;
                 self.pan = Vec2::ZERO;
                 self.fit = true;
             }
             ui.separator();
-            crate::theme::caption(ui, "Rotation and mirroring affect only the view");
+            crate::theme::caption(
+                ui,
+                crate::i18n::ui(ui.ctx(), "Rotation and mirroring affect only the view"),
+            );
         });
         section(ui, "NAVIGATION");
         ui.horizontal(|ui| {
             if crate::theme::button(ui, "−").clicked() {
                 self.request_zoom(1.0 / 1.25, false, Vec2::ZERO);
             }
-            if crate::theme::button(ui, "Ajustar")
-                .on_hover_text(self.settings.shortcuts.label(Shortcut::Fit))
+            if crate::theme::button(ui, "Fit")
+                .on_hover_text(crate::i18n::ui(
+                    ui.ctx(),
+                    self.settings.shortcuts.label(Shortcut::Fit),
+                ))
                 .clicked()
             {
                 self.fit = true;
@@ -3661,11 +3757,14 @@ impl PaintAtlas {
         ui.add_space(8.0);
         crate::theme::caption(
             ui,
-            format!(
-                "Roda: zoom\n{} + arrastar: zoom contínuo\n{} + arrastar: mover\n{} + clique: pegar cor",
-                self.settings.shortcuts.label(Shortcut::TemporaryZoom),
-                self.settings.shortcuts.label(Shortcut::Pan),
-                self.settings.shortcuts.label(Shortcut::TemporaryPicker)
+            crate::i18n::ui(
+                ui.ctx(),
+                format!(
+                    "Wheel: zoom\n{} + drag: continuous zoom\n{} + drag: pan\n{} + click: pick color",
+                    self.settings.shortcuts.label(Shortcut::TemporaryZoom),
+                    self.settings.shortcuts.label(Shortcut::Pan),
+                    self.settings.shortcuts.label(Shortcut::TemporaryPicker)
+                ),
             ),
         );
     }
@@ -3694,23 +3793,32 @@ impl PaintAtlas {
             "app.transform",
         ] {
             let label = crate::i18n::text(language, category);
-            egui::CollapsingHeader::new(label)
+            egui::CollapsingHeader::new(crate::i18n::ui(ui.ctx(), label))
                 .default_open(true)
                 .show(ui, |ui| {
                     for action in Shortcut::ALL.iter().filter(|action| {
                         crate::i18n::category_key(action.category()) == Some(category)
                     }) {
-                        ui.label(format!(
-                            "{} — {}",
-                            self.settings.shortcuts.label(*action),
-                            action.label()
+                        ui.label(crate::i18n::ui(
+                            ui.ctx(),
+                            format!(
+                                "{} — {}",
+                                self.settings.shortcuts.label(*action),
+                                action.label()
+                            ),
                         ));
                     }
                 });
         }
         ui.separator();
-        ui.label("The .patlas project preserves layers. PNG exports\nthe visible composite, including transparency.");
-        crate::theme::caption(ui, "Raster prototype • .clip files are not supported.");
+        ui.label(crate::i18n::ui(ui.ctx(), "The .patlas project preserves layers. PNG exports\nthe visible composite, including transparency."));
+        crate::theme::caption(
+            ui,
+            crate::i18n::ui(
+                ui.ctx(),
+                "Raster prototype • .clip files are not supported.",
+            ),
+        );
     }
     fn apply_workspace_actions(&mut self, ctx: &egui::Context) {
         for action in std::mem::take(&mut self.workspace_actions) {
@@ -3768,6 +3876,10 @@ impl PaintAtlas {
         self.apply_workspace_actions(ctx);
     }
     fn panel_ui(&mut self, ui: &mut egui::Ui, panel: crate::workspace::Panel) {
+        if self.startup_transition.is_some() {
+            ui.visuals_mut().disabled_alpha = 1.0;
+            ui.disable();
+        }
         // References are independent of the document and remain usable during previews.
         if panel == crate::workspace::Panel::References {
             if self.references.show(ui, &mut self.settings.references) {
@@ -3828,68 +3940,58 @@ impl PaintAtlas {
             return;
         }
         let language = self.settings.language;
-        egui::Window::new(if language == crate::i18n::Language::English {
-            "Welcome to PaintAtlas"
-        } else {
-            "Bem-vindo ao PaintAtlas"
-        })
-        .id(egui::Id::new("first_run_settings"))
-        .collapsible(false)
-        .resizable(true)
-        .default_width(560.0)
-        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-        .show(ctx, |ui| {
-            ui.label(if language == crate::i18n::Language::English {
+        egui::Window::new(crate::i18n::ui(ctx, "Welcome to PaintAtlas"))
+            .id(egui::Id::new("first_run_settings"))
+            .collapsible(false)
+            .resizable(true)
+            .default_width(560.0)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(crate::i18n::ui(ui.ctx(), if language == crate::i18n::Language::English {
                 "Choose your initial app preferences. You can change them later in Settings."
             } else {
-                "Configure as preferências iniciais do app. Você poderá alterá-las depois em Configurações."
-            });
-            ui.add_space(12.0);
-            if self.preferences.show(ui, &mut self.settings) {
-                self.settings_pending = true;
-                self.settings_edited = std::time::Instant::now();
-            }
-            if !self.first_run_settings_error.is_empty() {
-                ui.colored_label(Color32::LIGHT_RED, &self.first_run_settings_error);
-            }
-            ui.add_space(8.0);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .button(if language == crate::i18n::Language::English {
-                        "Continue"
-                    } else {
-                        "Continuar"
-                    })
-                    .clicked()
-                {
-                    let result = self.settings_path.as_ref().map_or(Ok(()), |path| {
-                        self.settings.save(path)
-                    });
-                    match result {
-                        Ok(()) => {
-                            self.settings_pending = false;
-                            self.first_run_settings = false;
-                            self.first_run_settings_error.clear();
-                        }
-                        Err(error) => self.first_run_settings_error = error,
-                    }
+                "Set your initial app preferences. You can change them later in Settings."
+            }));
+                ui.add_space(12.0);
+                if self.preferences.show(ui, &mut self.settings) {
+                    self.settings_pending = true;
+                    self.settings_edited = std::time::Instant::now();
                 }
+                if !self.first_run_settings_error.is_empty() {
+                    ui.colored_label(Color32::LIGHT_RED, &self.first_run_settings_error);
+                }
+                ui.add_space(8.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(crate::i18n::ui(ui.ctx(), "Continue")).clicked() {
+                        let result = self
+                            .settings_path
+                            .as_ref()
+                            .map_or(Ok(()), |path| self.settings.save(path));
+                        match result {
+                            Ok(()) => {
+                                self.settings_pending = false;
+                                self.first_run_settings = false;
+                                self.first_run_settings_error.clear();
+                            }
+                            Err(error) => self.first_run_settings_error = error,
+                        }
+                    }
+                });
             });
-        });
     }
     fn files_ui(&mut self, ui: &mut egui::Ui) {
         for (label, action) in [
-            ("Novo…", 0),
-            ("Abrir…", 1),
+            ("New…", 0),
+            ("Open…", 1),
             ("Save Project", 2),
-            ("Salvar como…", 3),
+            ("Save as…", 3),
             ("Quick PNG Export…", 4),
             ("Export As…", 5),
         ] {
             if ui
                 .add_sized(
                     [ui.available_width().max(140.0), 32.0],
-                    egui::Button::new(label),
+                    egui::Button::new(crate::i18n::ui(ui.ctx(), label)),
                 )
                 .clicked()
             {
@@ -3929,16 +4031,19 @@ impl PaintAtlas {
                 |ctx, class| {
                     if class == egui::ViewportClass::Embedded {
                         let mut open = true;
-                        egui::Window::new(external.panel.localized_title(self.settings.language))
-                            .id(egui::Id::new(("native_fallback", external.panel)))
-                            .open(&mut open)
-                            .resizable(true)
-                            .default_size(size)
-                            .show(ctx, |ui| {
-                                self.reattach_menu(ui, external.panel);
-                                ui.separator();
-                                self.panel_ui(ui, external.panel);
-                            });
+                        egui::Window::new(crate::i18n::ui(
+                            ctx,
+                            external.panel.localized_title(self.settings.language),
+                        ))
+                        .id(egui::Id::new(("native_fallback", external.panel)))
+                        .open(&mut open)
+                        .resizable(true)
+                        .default_size(size)
+                        .show(ctx, |ui| {
+                            self.reattach_menu(ui, external.panel);
+                            ui.separator();
+                            self.panel_ui(ui, external.panel);
+                        });
                         close = !open;
                     } else {
                         close = ctx.input(|i| i.viewport().close_requested());
@@ -3981,13 +4086,13 @@ impl PaintAtlas {
     }
     fn reattach_menu(&mut self, ui: &mut egui::Ui, panel: crate::workspace::Panel) {
         ui.horizontal_wrapped(|ui| {
-            if crate::theme::button(ui, "Reacoplar").clicked() {
+            if crate::theme::button(ui, "Redock").clicked() {
                 self.workspace_actions.push(crate::workspace::Action::Dock(
                     panel,
                     crate::workspace::Placement::Right,
                 ));
             }
-            ui.menu_button("Position…", |ui| {
+            ui.menu_button(crate::i18n::ui(ui.ctx(), "Position…"), |ui| {
                 for placement in crate::workspace::Placement::ALL {
                     if crate::theme::button(ui, placement.localized_title(self.settings.language))
                         .clicked()
@@ -3997,7 +4102,7 @@ impl PaintAtlas {
                         ui.close();
                     }
                 }
-                if crate::theme::button(ui, "Flutuar dentro do editor").clicked() {
+                if crate::theme::button(ui, "Float inside the editor").clicked() {
                     self.workspace_actions
                         .push(crate::workspace::Action::Float(panel));
                     ui.close();
@@ -4006,6 +4111,8 @@ impl PaintAtlas {
         });
     }
     fn require_initial_canvas(&mut self) {
+        self.startup_transition = None;
+        self.startup_preview = None;
         self.documents.clear();
         self.active_document = 0;
         self.startup_canvas_required = true;
@@ -4013,6 +4120,9 @@ impl PaintAtlas {
     }
 
     fn create_canvas(&mut self, ctx: &egui::Context) {
+        let source = (self.startup_canvas_required && !crate::theme::reduced_motion(ctx))
+            .then_some(self.startup_preview)
+            .flatten();
         self.new_width = self.new_width.clamp(16, MAX_SIDE);
         self.new_height = self.new_height.clamp(16, MAX_SIDE);
         self.new_dpi = self.new_dpi.clamp(1, crate::document::MAX_DPI);
@@ -4040,7 +4150,8 @@ impl PaintAtlas {
         };
         self.add_document(doc, None, false);
         self.color = Color32::BLACK;
-        self.status = "Nova tela criada".into();
+        self.status = "New canvas created".into();
+        self.begin_startup_transition(ctx, source.map(startup_ui::Transition::new));
         self.settings_pending = true;
         self.persist_presets(ctx, true);
     }
@@ -4048,14 +4159,16 @@ impl PaintAtlas {
     fn dialogs(&mut self, ctx: &egui::Context) {
         if let Some(action) = self.pending {
             egui::Modal::new(egui::Id::new("unsaved")).show(ctx, |ui| {
-                ui.heading("Salvar seu desenho?");
+                ui.heading(crate::i18n::ui(ui.ctx(), "Save your drawing?"));
                 if !self.documents.is_empty() {
                     ui.label(self.document_title(self.active_document));
                 }
-                ui.label("This project has unsaved changes.");
+                ui.label(crate::i18n::ui(
+                    ui.ctx(),
+                    "This project has unsaved changes.",
+                ));
                 ui.horizontal(|ui| {
-                    if crate::theme::button(ui, "Salvar e continuar").clicked() && self.save(false)
-                    {
+                    if crate::theme::button(ui, "Save and continue").clicked() && self.save(false) {
                         self.pending = None;
                         self.perform(action);
                     }
@@ -4063,7 +4176,7 @@ impl PaintAtlas {
                         self.pending = None;
                         self.perform(action);
                     }
-                    if crate::theme::button(ui, "Cancelar").clicked() {
+                    if crate::theme::button(ui, "Cancel").clicked() {
                         self.pending = None;
                     }
                 });
@@ -4076,73 +4189,11 @@ impl PaintAtlas {
         }
     }
 
-    fn startup_splash(&mut self, ctx: &egui::Context) {
-        let texture = self.splash_background.get_or_insert_with(|| {
-            let image = image::load_from_memory(include_bytes!("../../assets/background.jpg"))
-                .expect("Invalid splash background image")
-                .into_rgba8();
-            ctx.load_texture(
-                "startup_background",
-                egui::ColorImage::from_rgba_unmultiplied(
-                    [image.width() as usize, image.height() as usize],
-                    image.as_raw(),
-                ),
-                egui::TextureOptions::LINEAR,
-            )
-        });
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                let bounds = ui.max_rect();
-                let size = texture.size_vec2();
-                let scale = (bounds.width() / size.x).max(bounds.height() / size.y);
-                let uv_size = bounds.size() / (size * scale);
-                let uv = egui::Rect::from_center_size(Pos2::new(0.5, 0.5), uv_size);
-                ui.painter().image(texture.id(), bounds, uv, Color32::WHITE);
-                ui.painter()
-                    .rect_filled(bounds, 0.0, Color32::from_black_alpha(38));
-            });
-        egui::Area::new(egui::Id::new("startup_splash"))
-            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-            .movable(false)
-            .order(egui::Order::Middle)
-            .show(ctx, |ui| {
-                let width = (ctx.content_rect().width() - 48.0).clamp(220.0, 440.0);
-                ui.set_width(width);
-                ui.set_max_height((ctx.content_rect().height() - 40.0).max(120.0));
-                egui::ScrollArea::vertical()
-                    .max_height((ctx.content_rect().height() - 40.0).max(120.0))
-                    .show(ui, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.label(
-                                egui::RichText::new("PaintAtlas")
-                                    .size(46.0)
-                                    .strong()
-                                    .color(Color32::WHITE),
-                            );
-                            ui.label(
-                                egui::RichText::new("A space for your ideas.")
-                                    .size(15.0)
-                                    .color(Color32::from_gray(220)),
-                            );
-                        });
-                        ui.add_space(24.0);
-                        crate::theme::glass_frame(ui)
-                            .inner_margin(24.0)
-                            .corner_radius(24)
-                            .show(ui, |ui| {
-                                ui.set_width((width - 48.0).max(172.0));
-                                self.new_canvas_contents(ctx, ui);
-                            });
-                    });
-            });
-    }
-
     fn new_canvas_contents(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
-        ui.heading("Nova tela");
+        ui.heading(crate::i18n::ui(ui.ctx(), "New canvas"));
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label("Largura");
+            ui.label(crate::i18n::ui(ui.ctx(), "Width"));
             ui.add(
                 egui::DragValue::new(&mut self.new_width)
                     .range(16..=MAX_SIDE)
@@ -4150,7 +4201,7 @@ impl PaintAtlas {
             );
         });
         ui.horizontal(|ui| {
-            ui.label("Altura");
+            ui.label(crate::i18n::ui(ui.ctx(), "Height"));
             ui.add(
                 egui::DragValue::new(&mut self.new_height)
                     .range(16..=MAX_SIDE)
@@ -4158,7 +4209,7 @@ impl PaintAtlas {
             );
         });
         ui.horizontal(|ui| {
-            ui.label("Resolução");
+            ui.label(crate::i18n::ui(ui.ctx(), "Resolution"));
             ui.add(
                 egui::DragValue::new(&mut self.new_dpi)
                     .range(1..=crate::document::MAX_DPI)
@@ -4167,61 +4218,80 @@ impl PaintAtlas {
         });
         crate::theme::caption(
             ui,
-            format!(
-                "Impressão: {:.1} × {:.1} cm · o DPI não altera a quantidade de pixels",
-                self.new_width as f64 / self.new_dpi.max(1) as f64 * 2.54,
-                self.new_height as f64 / self.new_dpi.max(1) as f64 * 2.54,
+            crate::i18n::ui(
+                ui.ctx(),
+                format!(
+                    "Print size: {:.1} × {:.1} cm · DPI does not change the pixel count",
+                    self.new_width as f64 / self.new_dpi.max(1) as f64 * 2.54,
+                    self.new_height as f64 / self.new_dpi.max(1) as f64 * 2.54,
+                ),
             ),
         );
-        crate::theme::toggle(ui, &mut self.white, "Adicionar camada de papel");
+        crate::theme::toggle(
+            ui,
+            &mut self.white,
+            &crate::i18n::ui(ui.ctx(), "Add paper layer"),
+        );
         ui.add_enabled_ui(self.white, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Cor do papel");
+                ui.label(crate::i18n::ui(ui.ctx(), "Paper color"));
                 ui.color_edit_button_srgb(&mut self.paper_color);
             });
         });
         ui.horizontal_wrapped(|ui| {
-            if crate::theme::button(ui, "Criar").clicked() {
+            if crate::theme::button(ui, "Create").clicked() {
                 self.create_canvas(ctx);
             }
             if self.startup_canvas_required {
-                if crate::theme::button(ui, "Abrir arquivo…")
-                    .on_hover_text("Abrir projeto PaintAtlas ou imagem PNG, JPG, WebP, GIF ou BMP")
+                if crate::theme::button(ui, "Open file…")
+                    .on_hover_text(crate::i18n::ui(
+                        ui.ctx(),
+                        "Open a PaintAtlas project or PNG, JPG, WebP, GIF, or BMP image",
+                    ))
                     .clicked()
                 {
                     self.perform(Action::Open);
                 }
-                if crate::theme::button(ui, "Colar imagem")
-                    .on_hover_text(format!(
-                        "{} · Criar canvas no tamanho da imagem copiada",
-                        self.settings.shortcuts.label(Shortcut::Paste)
+                if crate::theme::button(ui, "Paste image")
+                    .on_hover_text(crate::i18n::ui(
+                        ui.ctx(),
+                        format!(
+                            "{} · Create a canvas at the copied image’s size",
+                            self.settings.shortcuts.label(Shortcut::Paste)
+                        ),
                     ))
                     .clicked()
                 {
                     self.paste_from_clipboard(ctx);
                 }
-                if crate::theme::button(ui, "Sair").clicked() {
+                if crate::theme::button(ui, "Exit").clicked() {
                     self.allow_close = true;
                 }
-            } else if crate::theme::button(ui, "Cancelar").clicked() {
+            } else if crate::theme::button(ui, "Cancel").clicked() {
                 self.new_dialog = false;
             }
         });
         if self.startup_canvas_required {
             crate::theme::caption(
                 ui,
-                format!(
-                    "Image copied? Use {} para abrir no tamanho original.",
-                    self.settings.shortcuts.label(Shortcut::Paste)
+                crate::i18n::ui(
+                    ui.ctx(),
+                    format!(
+                        "Image copied? Use {} to open it at its original size.",
+                        self.settings.shortcuts.label(Shortcut::Paste)
+                    ),
                 ),
             );
         }
         if self.startup_canvas_required
-            && (self.status.starts_with("Erro ao abrir:")
-                || self.status.starts_with("Erro ao importar:")
-                || self.status.starts_with("Erro ao colar:"))
+            && (self.status.starts_with("Could not open:")
+                || self.status.starts_with("Could not import:")
+                || self.status.starts_with("Could not paste:"))
         {
-            ui.colored_label(ui.visuals().error_fg_color, &self.status);
+            ui.colored_label(
+                ui.visuals().error_fg_color,
+                crate::i18n::ui(ui.ctx(), &self.status),
+            );
         }
     }
 }
@@ -4435,6 +4505,7 @@ impl eframe::App for PaintAtlas {
         }
     }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        crate::i18n::set_language(ctx, self.settings.language);
         crate::theme::apply(ctx, &self.settings.appearance);
         if std::mem::take(&mut self.maximize_on_start) {
             // Some X11 window managers ignore the maximized creation hint.
@@ -4480,7 +4551,9 @@ impl eframe::App for PaintAtlas {
             self.settings_pending = true;
             self.settings_edited = std::time::Instant::now();
         }
-        self.handle_image_drops(ctx);
+        if self.startup_transition.is_none() {
+            self.handle_image_drops(ctx);
+        }
         if self.startup_canvas_required {
             self.clipboard_shortcuts(ctx);
         }
@@ -4490,7 +4563,9 @@ impl eframe::App for PaintAtlas {
             self.new_dialog = true;
             self.startup_splash(ctx);
         } else {
-            self.shortcuts(ctx);
+            if self.startup_transition.is_none() {
+                self.shortcuts(ctx);
+            }
             self.top(ctx);
             self.workspace_ui(ctx);
             self.brush_editor_ui(ctx);
@@ -4502,6 +4577,7 @@ impl eframe::App for PaintAtlas {
         self.image_drop_overlay(ctx);
         self.first_run_settings_ui(ctx);
         crate::theme::finish_glass(ctx);
+        self.startup_transition_ui(ctx);
         self.ruler_ui.finish_pointer_edit(ctx);
         if self.gesture.is_none()
             && !self.opacity_edit
@@ -4518,7 +4594,7 @@ impl eframe::App for PaintAtlas {
 
         self.persist_presets(ctx, false);
         if let Err(e) = self.workspace.persist(ctx, false) {
-            self.status = format!("Erro ao salvar layout: {e}");
+            self.status = format!("Could not save the layout: {e}");
         }
         // Optional native-render smoke test; exits after capturing this app's viewport.
         if let Some(path) = &self.screenshot {
@@ -4558,6 +4634,11 @@ impl eframe::App for PaintAtlas {
                 Ok("clipboard-flight-copy" | "clipboard-flight-paste") => 24,
                 Ok("scrubby-zoom-in" | "scrubby-zoom-out") => 44,
                 Ok("glass-canvas-native") => 60,
+                Ok("startup-transition-start") => 8,
+                Ok("startup-transition-end") => 100,
+                Ok("startup-paste-start") => 14,
+                Ok("startup-paste-mid") => 26,
+                Ok("startup-paste-end") => 100,
                 _ => 20,
             };
             if self.frames == capture_frame {
@@ -4659,19 +4740,19 @@ impl egui_dock::TabViewer for PanelViewer<'_> {
         if *tab == crate::workspace::Panel::Canvas {
             return;
         }
-        if crate::theme::button(ui, "Flutuar no editor").clicked() {
+        if crate::theme::button(ui, "Float in editor").clicked() {
             self.0
                 .workspace_actions
                 .push(crate::workspace::Action::Float(*tab));
             ui.close();
         }
-        if crate::theme::button(ui, "Abrir como janela do sistema").clicked() {
+        if crate::theme::button(ui, "Open in a separate system window").clicked() {
             self.0
                 .workspace_actions
                 .push(crate::workspace::Action::External(*tab));
             ui.close();
         }
-        ui.menu_button("Acoplar…", |ui| {
+        ui.menu_button(crate::i18n::ui(ui.ctx(), "Dock…"), |ui| {
             for placement in crate::workspace::Placement::ALL {
                 if crate::theme::button(ui, placement.localized_title(self.0.settings.language))
                     .clicked()
@@ -4687,7 +4768,7 @@ impl egui_dock::TabViewer for PanelViewer<'_> {
 }
 fn section(ui: &mut egui::Ui, text: &str) {
     ui.label(
-        egui::RichText::new(text)
+        egui::RichText::new(crate::i18n::ui(ui.ctx(), text))
             .small()
             .strong()
             .color(Color32::from_rgb(144, 158, 170)),
@@ -5101,7 +5182,7 @@ mod tests {
             .shapes
             .iter()
             .find_map(|s| match &s.shape {
-                egui::Shape::Text(t) if t.galley.job.text == "Duplicar recorte" => {
+                egui::Shape::Text(t) if t.galley.job.text == "Duplicate selection" => {
                     Some(t.pos + t.galley.size() * 0.5)
                 }
                 _ => None,
@@ -5173,7 +5254,7 @@ mod tests {
                 .unwrap()
         };
         let mut output = draw(&mut app, vec![]);
-        assert!(position(&output, "Opacidade da camada").y < position(&output, "Top").y);
+        assert!(position(&output, "Layer opacity").y < position(&output, "Top").y);
         for (source, target, offset, expected) in [
             ("Top", "Bottom", 28.0, ["Top", "Bottom", "Middle"]),
             ("Top", "Middle", -12.0, ["Bottom", "Middle", "Top"]),
@@ -5256,7 +5337,7 @@ mod tests {
             )
         };
         frame(&mut app, vec![]);
-        for mode in ["Triangular", "Retangular", "Triangular"] {
+        for mode in ["Triangular", "Rectangular", "Triangular"] {
             let out = frame(&mut app, vec![]);
             let p = out
                 .shapes
@@ -5319,7 +5400,7 @@ mod tests {
         };
         frame(vec![]);
         let out = frame(vec![]);
-        let p = text_center(&out, "Circular (sem textura)");
+        let p = text_center(&out, "Round (no texture)");
         frame(vec![egui::Event::PointerMoved(p)]);
         frame(vec![egui::Event::PointerButton {
             pos: p,
@@ -5528,7 +5609,7 @@ mod tests {
         app.open_brush_editor();
         let mut draft = app.brush_editor.take().unwrap();
         assert_eq!(draft.size, 81.0);
-        draft.name = "Caneta personalizada".into();
+        draft.name = "Custom brush".into();
         draft.eraser = true;
         app.brush_editor = Some(draft);
         let editor_frame = |app: &mut PaintAtlas, events| {
@@ -5547,7 +5628,7 @@ mod tests {
             .shapes
             .iter()
             .find_map(|s| match &s.shape {
-                egui::Shape::Text(t) if t.galley.job.text == "Criar preset" => {
+                egui::Shape::Text(t) if t.galley.job.text == "Create preset" => {
                     Some(t.pos + t.galley.rect.size() * 0.5)
                 }
                 _ => None,
@@ -5791,7 +5872,7 @@ mod tests {
                 .shapes
                 .iter()
                 .find_map(|s| match &s.shape {
-                    egui::Shape::Text(t) if t.galley.job.text == "Cores" => {
+                    egui::Shape::Text(t) if t.galley.job.text == "Colors" => {
                         Some(t.pos + t.galley.rect.size() * 0.5)
                     }
                     _ => None,
@@ -6727,5 +6808,73 @@ mod tests {
         assert!(app.selection.mask.is_none() && app.doc.selection.is_none());
         assert!(app.doc.layers[0].alpha_lock);
         assert_eq!(app.history.counts(), (0, 0));
+    }
+}
+
+#[cfg(test)]
+mod localization_tests {
+    use super::*;
+    fn visible_text(output: &egui::FullOutput) -> Vec<String> {
+        output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+    #[test]
+    fn english_panels_show_translated_controls_and_portuguese_remains_selectable() {
+        use crate::workspace::Panel;
+        for (panel, expected) in [
+            (Panel::References, vec!["Add…", "Fit"]),
+            (Panel::Settings, vec!["Language", "Drawing"]),
+            (Panel::Files, vec!["Open…", "Save Project"]),
+            (Panel::BrushSizes, vec!["Current", "Locate"]),
+            (Panel::Layers, vec!["Duplicate", "Delete", "Layer opacity"]),
+            (Panel::Navigation, vec!["Fit", "Reset view"]),
+            (Panel::Tools, vec!["Brush", "Ruler"]),
+            (Panel::Properties, vec!["Opacity"]),
+        ] {
+            let ctx = egui::Context::default();
+            let mut app = PaintAtlas::from_context(&ctx);
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        Pos2::ZERO,
+                        Vec2::new(640.0, 1000.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| app.panel_ui(ui, panel));
+                },
+            );
+            let text = visible_text(&output);
+            for label in expected {
+                assert!(
+                    text.iter().any(|s| s == label),
+                    "missing {label} in {panel:?}: {text:?}"
+                );
+            }
+        }
+        let ctx = egui::Context::default();
+        let mut app = PaintAtlas::from_context(&ctx);
+        app.settings.language = crate::i18n::Language::PortugueseBrazil;
+        crate::i18n::set_language(&ctx, app.settings.language);
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    Pos2::ZERO,
+                    Vec2::new(640.0, 1000.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| app.panel_ui(ui, Panel::Layers));
+            },
+        );
+        assert!(visible_text(&output).iter().any(|s| s == "Duplicar"));
     }
 }

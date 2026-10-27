@@ -218,7 +218,10 @@ impl State {
             Stroke::new(3.0_f32, accent),
         );
         response
-            .on_hover_text("Imagem copiada para a área de transferência. Clique para colar.")
+            .on_hover_text(crate::i18n::ui(
+                ui.ctx(),
+                "Image copied to the clipboard. Click to paste.",
+            ))
             .clicked()
     }
     pub fn paint(&mut self, ctx: &egui::Context, paste_target: Option<[Pos2; 4]>) {

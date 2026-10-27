@@ -16,7 +16,7 @@ impl Tablet {
     #[cfg(test)]
     pub fn without_hardware(_ctx: eframe::egui::Context) -> Self {
         Self {
-            name: "Mesa de teste".into(),
+            name: "Test tablet".into(),
             current: 0.0,
         }
     }

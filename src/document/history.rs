@@ -681,7 +681,7 @@ mod tests {
         doc.add_layer();
         h.commit(&doc);
         h.push(&doc);
-        doc.layers[2].name = "Detalhes".into();
+        doc.layers[2].name = "Details".into();
         doc.layers[2].opacity = 0.5;
         doc.layers[2].alpha_lock = true;
         doc.layers[0].visible = false;

@@ -57,7 +57,7 @@ impl GeometryKind {
         match self {
             Self::Resize => "Image Size",
             Self::Canvas => "Canvas Size",
-            Self::Rotate => "Rotação arbitrária",
+            Self::Rotate => "Arbitrary Rotation",
             Self::Trim => "Trim",
         }
     }
@@ -125,14 +125,17 @@ impl PaintAtlas {
             Shortcut::ImageCrop => self.crop_image(ctx),
             Shortcut::ImageDuplicate => self.duplicate_image(),
             Shortcut::ImageRotate90 => {
-                self.start_geometry(ctx, Geometry::Rotate90, "Rotação 90° horário", None)
+                self.start_geometry(ctx, Geometry::Rotate90, "Rotate 90° Clockwise", None)
             }
             Shortcut::ImageRotate180 => {
-                self.start_geometry(ctx, Geometry::Rotate180, "Rotação 180°", None)
+                self.start_geometry(ctx, Geometry::Rotate180, "Rotate 180°", None)
             }
-            Shortcut::ImageRotate270 => {
-                self.start_geometry(ctx, Geometry::Rotate270, "Rotação 90° anti-horário", None)
-            }
+            Shortcut::ImageRotate270 => self.start_geometry(
+                ctx,
+                Geometry::Rotate270,
+                "Rotate 90° Counterclockwise",
+                None,
+            ),
             Shortcut::ImageFlipHorizontal => self.start_geometry(
                 ctx,
                 Geometry::FlipHorizontal,
@@ -149,10 +152,13 @@ impl PaintAtlas {
     pub(super) fn image_menu(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let enabled = self.image_operation_allowed();
-        let menu = ui.menu_button("Image", |ui| {
+        let menu = ui.menu_button(crate::i18n::ui(ui.ctx(), "Image"), |ui| {
             ui.add_enabled_ui(enabled, |ui| {
-                crate::theme::caption(ui, "RGB / Alfa · 8 bits por canal");
-                let submenu = ui.menu_button("Ajustes", |ui| {
+                crate::theme::caption(
+                    ui,
+                    crate::i18n::ui(ui.ctx(), "RGB / Alpha · 8 bits per channel"),
+                );
+                let submenu = ui.menu_button(crate::i18n::ui(ui.ctx(), "Adjustments"), |ui| {
                     for &kind in Adjustment::ALL {
                         if matches!(
                             kind,
@@ -194,11 +200,12 @@ impl PaintAtlas {
                     Adjustment::AutoColor,
                 ] {
                     if ui
-                        .button(
+                        .button(crate::i18n::ui(
+                            ui.ctx(),
                             self.settings
                                 .shortcuts
                                 .menu(adjustment_shortcut(kind), kind.label()),
-                        )
+                        ))
                         .clicked()
                     {
                         self.open_adjustment(&ctx, kind);
@@ -218,14 +225,14 @@ impl PaintAtlas {
                         ui.close();
                     }
                 }
-                ui.menu_button("Rotação da imagem", |ui| {
+                ui.menu_button(crate::i18n::ui(ui.ctx(), "Image Rotation"), |ui| {
                     for (action, label) in [
                         (Shortcut::ImageRotate180, "180°"),
-                        (Shortcut::ImageRotate90, "90° horário"),
-                        (Shortcut::ImageRotate270, "90° anti-horário"),
-                        (Shortcut::ImageRotate, "Arbitrária…"),
-                        (Shortcut::ImageFlipHorizontal, "Espelhar horizontalmente"),
-                        (Shortcut::ImageFlipVertical, "Espelhar verticalmente"),
+                        (Shortcut::ImageRotate90, "90° Clockwise"),
+                        (Shortcut::ImageRotate270, "90° Counterclockwise"),
+                        (Shortcut::ImageRotate, "Arbitrary…"),
+                        (Shortcut::ImageFlipHorizontal, "Flip horizontally"),
+                        (Shortcut::ImageFlipVertical, "Flip vertically"),
                     ] {
                         if ui
                             .button(self.settings.shortcuts.menu(action, label))
@@ -237,7 +244,10 @@ impl PaintAtlas {
                     }
                     crate::theme::caption(
                         ui,
-                        "Altera os pixels de todas as camadas, não apenas a vista.",
+                        crate::i18n::ui(
+                            ui.ctx(),
+                            "Changes pixels on all layers, not just the view.",
+                        ),
                     );
                 });
                 if ui
@@ -246,19 +256,20 @@ impl PaintAtlas {
                         egui::Button::new(
                             self.settings
                                 .shortcuts
-                                .menu(Shortcut::ImageCrop, "Cortar pela seleção"),
+                                .menu(Shortcut::ImageCrop, "Crop to selection"),
                         ),
                     )
-                    .on_hover_text(
-                        "Recorta todas as camadas pelos limites retangulares da seleção.",
-                    )
+                    .on_hover_text(crate::i18n::ui(
+                        ui.ctx(),
+                        "Crops all layers to the rectangular bounds of the selection.",
+                    ))
                     .clicked()
                 {
                     self.crop_image(&ctx);
                     ui.close();
                 }
                 if ui
-                    .button(self.settings.shortcuts.menu(Shortcut::ImageTrim, "Aparar…"))
+                    .button(self.settings.shortcuts.menu(Shortcut::ImageTrim, "Trim…"))
                     .clicked()
                 {
                     self.open_geometry(GeometryKind::Trim);
@@ -297,11 +308,11 @@ impl PaintAtlas {
         }
         let layer = self.doc.active;
         if self.doc.layers[layer].effects.len() >= 32 {
-            self.status = "Limite de 32 efeitos no grupo atingido.".into();
+            self.status = "The limit of 32 effects per group has been reached.".into();
             return;
         }
         if !self.doc.layers[layer].visible {
-            self.status = "Torne a camada ativa visível antes de ajustar suas cores.".into();
+            self.status = "Make the active layer visible before adjusting its colors.".into();
             return;
         }
         self.commit_name();
@@ -394,11 +405,11 @@ impl PaintAtlas {
                     r.max.x as u32,
                     r.max.y as u32,
                 ]),
-                "Cortar imagem",
+                "Crop image",
                 None,
             );
         } else {
-            self.status = "Crie uma seleção para recortar a imagem.".into();
+            self.status = "Create a selection to crop the image.".into();
         }
     }
     fn duplicate_image(&mut self) {
@@ -412,7 +423,7 @@ impl PaintAtlas {
         doc.dirty_tiles.clear();
         *doc.stroke_tiles.get_mut() = None;
         self.add_document(doc, None, true);
-        self.status = "Image duplicada em um novo canvas, com todas as camadas.".into();
+        self.status = "Image duplicated in a new canvas with all layers.".into();
     }
     fn preview_pixels(&mut self, layer: usize, pixels: &[u8]) {
         self.doc.layers[layer].pixels.copy_from_slice(pixels);
@@ -422,7 +433,7 @@ impl PaintAtlas {
                 self.groups_prepared = false;
                 self.doc.damage = Some([0, 0, self.doc.width as usize, self.doc.height as usize]);
                 self.doc.dirty_tiles.clear();
-                self.status = format!("Não foi possível reconstruir os grupos: {error}");
+                self.status = format!("Could not rebuild groups: {error}");
             }
         }
         // Only this layer changed. Keep every other GPU texture intact.
@@ -471,19 +482,19 @@ impl PaintAtlas {
             self.dirty = editor.was_dirty || changed;
             self.status = if changed {
                 format!(
-                    "{} aplicado à camada {}.",
+                    "{} applied to layer {}.",
                     editor.settings.label(),
                     self.doc.layers[self.doc.active].name
                 )
             } else {
-                "Nenhuma alteração de pixels.".into()
+                "No pixel changes.".into()
             };
         } else {
             if editor.preview_applied {
                 self.preview_pixels(editor.layer, &editor.original);
             }
             self.dirty = editor.was_dirty;
-            self.status = "Ajuste cancelado; pixels originais preservados.".into();
+            self.status = "Adjustment canceled; original pixels preserved.".into();
         }
     }
     pub(super) fn image_dialog(&mut self, ctx: &egui::Context) {
@@ -561,11 +572,11 @@ impl PaintAtlas {
                 .show(ctx, |ui| {
                     crate::theme::caption(
                         ui,
-                        format!(
-                            "Camada: {}{} · {}",
+                        crate::i18n::ui(ui.ctx(), format!(
+                            "Layer: {}{} · {}",
                             self.doc.layers[editor.layer].name,
                             if editor.mask.is_some() {
-                                " · área selecionada"
+                                " · selected area"
                             } else {
                                 ""
                             },
@@ -575,16 +586,16 @@ impl PaintAtlas {
                                 && !f.alpha_lock
                                 && !f.preserve_alpha)
                             {
-                                "transparência processada"
+                                "transparency processed"
                             } else {
-                                "alfa preservado"
+                                "alpha preserved"
                             }
-                        ),
+                        )),
                     );
                     if self.doc.layers[editor.layer].group.is_some() {
                         crate::theme::caption(
                             ui,
-                            "O ajuste fica no grupo; suas camadas internas continuam editáveis.",
+                            crate::i18n::ui(ui.ctx(), "The adjustment stays on the group; its child layers remain editable."),
                         );
                     }
                     ui.add_space(8.0);
@@ -608,7 +619,7 @@ impl PaintAtlas {
                         ctx.request_repaint_after(Duration::from_millis(120));
                     }
                     let old_preview = editor.preview;
-                    ui.checkbox(&mut editor.preview, "Pré-visualizar no canvas");
+                    ui.checkbox(&mut editor.preview, crate::i18n::ui(ui.ctx(), "Preview on canvas"));
                     if old_preview != editor.preview {
                         if let Some(gallery) = &mut editor.gallery {
                             gallery.set_preview(
@@ -636,23 +647,23 @@ impl PaintAtlas {
                     processing_status(
                         ui,
                         editor.job.is_some() || editor.latest.is_none() && editor.error.is_none(),
-                        "Processando…",
+                        "Processing…",
                         editor.error.as_deref(),
                     );
                     ui.horizontal(|ui| {
                         if ui
                             .add_enabled(
                                 ready && before == editor.settings,
-                                egui::Button::new("Aplicar"),
+                                egui::Button::new(crate::i18n::ui(ui.ctx(), "Apply")),
                             )
                             .clicked()
                         {
                             apply = true;
                         }
-                        if ui.button("Cancelar").clicked() {
+                        if ui.button(crate::i18n::ui(ui.ctx(), "Cancel")).clicked() {
                             cancel = true;
                         }
-                        if ui.button("Restaurar").clicked() {
+                        if ui.button(crate::i18n::ui(ui.ctx(), "Reset")).clicked() {
                             editor.settings.reset();
                             editor.job = None;
                             editor.latest = None;
@@ -673,14 +684,17 @@ impl PaintAtlas {
                     .show(ctx, |ui| {
                         crate::theme::caption(
                             ui,
-                            "Afeta todas as camadas. A alteração pode ser desfeita.",
+                            crate::i18n::ui(
+                                ui.ctx(),
+                                "Affects all layers. This change can be undone.",
+                            ),
                         );
                         geometry_controls(ui, editor, &self.doc);
                         ui.horizontal(|ui| {
-                            if ui.button("Aplicar").clicked() {
+                            if ui.button(crate::i18n::ui(ui.ctx(), "Apply")).clicked() {
                                 apply = true;
                             }
-                            if ui.button("Cancelar").clicked() {
+                            if ui.button(crate::i18n::ui(ui.ctx(), "Cancel")).clicked() {
                                 cancel = true;
                             }
                         });
@@ -700,9 +714,9 @@ impl PaintAtlas {
                             self.rotation_target = None;
                             self.rename = self.doc.layers[self.doc.active].name.clone();
                             self.changed();
-                            self.status = format!("{name} concluído.");
+                            self.status = format!("{name} completed.");
                         }
-                        Err(error) => self.status = format!("Erro ao alterar imagem: {error}"),
+                        Err(error) => self.status = format!("Could not modify the image: {error}"),
                     }
                     ctx.request_repaint();
                     return;
@@ -711,8 +725,8 @@ impl PaintAtlas {
                 effect_window(ctx, "image_geometry", name, false)
                     .open(&mut open)
                     .show(ctx, |ui| {
-                        processing_status(ui, true, "Processando todas as camadas…", None);
-                        if ui.button("Cancelar").clicked() {
+                        processing_status(ui, true, "Processing all layers…", None);
+                        if ui.button(crate::i18n::ui(ui.ctx(), "Cancel")).clicked() {
                             cancel = true;
                         }
                     });
@@ -725,7 +739,7 @@ impl PaintAtlas {
             if let Editor::Adjustment(editor) = state {
                 self.finish_adjustment(*editor, false);
             } else {
-                self.status = "Operação de imagem cancelada.".into();
+                self.status = "Image operation canceled.".into();
             }
         } else if apply {
             ctx.request_repaint();
@@ -738,8 +752,7 @@ impl PaintAtlas {
                         self.doc.dpi = editor.dpi;
                         self.history.commit(&self.doc);
                         self.dirty |= changed;
-                        self.status =
-                            "Resolução de impressão atualizada; pixels preservados.".into();
+                        self.status = "Print resolution updated; pixels preserved.".into();
                         return;
                     }
                     let op = match editor.kind {
@@ -800,7 +813,7 @@ fn effect_window<'a>(
     title: &'a str,
     gallery: bool,
 ) -> egui::Window<'a> {
-    egui::Window::new(title)
+    egui::Window::new(crate::i18n::ui(ctx, title))
         .id(egui::Id::new(id))
         .default_pos(ctx.content_rect().min + egui::vec2(24.0, 110.0))
         .default_width(if gallery {
@@ -823,19 +836,22 @@ pub(super) fn processing_status(ui: &mut egui::Ui, busy: bool, label: &str, erro
     status.horizontal_centered(|ui| {
         if let Some(error) = error {
             ui.add(
-                egui::Label::new(egui::RichText::new(error).color(ui.visuals().error_fg_color))
-                    .truncate(),
+                egui::Label::new(
+                    egui::RichText::new(crate::i18n::ui(ui.ctx(), error))
+                        .color(ui.visuals().error_fg_color),
+                )
+                .truncate(),
             )
-            .on_hover_text(error);
+            .on_hover_text(crate::i18n::ui(ui.ctx(), error));
         } else if busy {
             ui.spinner();
-            ui.add(egui::Label::new(label).truncate());
+            ui.add(egui::Label::new(crate::i18n::ui(ui.ctx(), label)).truncate());
         }
     });
 }
 
 fn slider(ui: &mut egui::Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, label: &str) {
-    ui.add(egui::Slider::new(value, range).text(label));
+    ui.add(egui::Slider::new(value, range).text(crate::i18n::ui(ui.ctx(), label)));
 }
 fn adjustment_controls(ui: &mut egui::Ui, settings: &mut AdjustmentSettings) {
     let p = &mut settings.p;
@@ -846,24 +862,24 @@ fn adjustment_controls(ui: &mut egui::Ui, settings: &mut AdjustmentSettings) {
             }
         }
         Adjustment::BrightnessContrast => {
-            slider(ui, &mut p[0], -100.0..=100.0, "Brilho");
-            slider(ui, &mut p[1], -100.0..=100.0, "Contraste");
+            slider(ui, &mut p[0], -100.0..=100.0, "Brightness");
+            slider(ui, &mut p[1], -100.0..=100.0, "Contrast");
         }
         Adjustment::Levels => {
-            slider(ui, &mut p[0], 0.0..=254.0, "Entrada: preto");
-            slider(ui, &mut p[1], 1.0..=255.0, "Entrada: branco");
+            slider(ui, &mut p[0], 0.0..=254.0, "Input: black");
+            slider(ui, &mut p[1], 1.0..=255.0, "Input: white");
             if p[0] >= p[1] {
                 p[1] = p[0] + 1.0;
             }
-            slider(ui, &mut p[2], 0.1..=5.0, "Gama");
-            slider(ui, &mut p[3], 0.0..=255.0, "Saída: preto");
-            slider(ui, &mut p[4], 0.0..=255.0, "Saída: branco");
+            slider(ui, &mut p[2], 0.1..=5.0, "Gamma");
+            slider(ui, &mut p[3], 0.0..=255.0, "Output: black");
+            slider(ui, &mut p[4], 0.0..=255.0, "Output: white");
         }
         Adjustment::Curves => {
             egui::ComboBox::from_id_salt("curve_channel")
-                .selected_text(["RGB", "Vermelho", "Verde", "Azul"][p[5] as usize])
+                .selected_text(["RGB", "Red", "Green", "Blue"][p[5] as usize])
                 .show_ui(ui, |ui| {
-                    for (i, label) in ["RGB", "Vermelho", "Verde", "Azul"].iter().enumerate() {
+                    for (i, label) in ["RGB", "Red", "Green", "Blue"].iter().enumerate() {
                         ui.selectable_value(&mut p[5], i as f32, *label);
                     }
                 });
@@ -871,52 +887,58 @@ fn adjustment_controls(ui: &mut egui::Ui, settings: &mut AdjustmentSettings) {
         }
 
         Adjustment::Exposure => {
-            slider(ui, &mut p[0], -10.0..=10.0, "Exposição (EV)");
+            slider(ui, &mut p[0], -10.0..=10.0, "Exposure (EV)");
             slider(ui, &mut p[1], -0.5..=0.5, "Offset");
-            slider(ui, &mut p[2], 0.1..=5.0, "Gama");
+            slider(ui, &mut p[2], 0.1..=5.0, "Gamma");
         }
         Adjustment::Vibrance => {
-            slider(ui, &mut p[0], -100.0..=100.0, "Vibração");
-            slider(ui, &mut p[1], -100.0..=100.0, "Saturação");
+            slider(ui, &mut p[0], -100.0..=100.0, "Vibrance");
+            slider(ui, &mut p[1], -100.0..=100.0, "Saturation");
         }
         Adjustment::HueSaturation => {
-            slider(ui, &mut p[0], -180.0..=180.0, "Matiz");
-            slider(ui, &mut p[1], -100.0..=100.0, "Saturação");
-            slider(ui, &mut p[2], -100.0..=100.0, "Luminosidade");
+            slider(ui, &mut p[0], -180.0..=180.0, "Hue");
+            slider(ui, &mut p[1], -100.0..=100.0, "Saturation");
+            slider(ui, &mut p[2], -100.0..=100.0, "Luminosity");
         }
         Adjustment::ColorBalance => {
             egui::ComboBox::from_id_salt("balance_range")
-                .selected_text(["Sombras", "Meios-tons", "Realces"][p[3] as usize])
+                .selected_text(["Shadows", "Midtones", "Highlights"][p[3] as usize])
                 .show_ui(ui, |ui| {
-                    for (i, label) in ["Sombras", "Meios-tons", "Realces"].iter().enumerate() {
+                    for (i, label) in ["Shadows", "Midtones", "Highlights"].iter().enumerate() {
                         ui.selectable_value(&mut p[3], i as f32, *label);
                     }
                 });
-            slider(ui, &mut p[0], -100.0..=100.0, "Ciano ↔ vermelho");
-            slider(ui, &mut p[1], -100.0..=100.0, "Magenta ↔ verde");
-            slider(ui, &mut p[2], -100.0..=100.0, "Amarelo ↔ azul");
-            ui.checkbox(&mut settings.preserve_luminosity, "Preservar luminosidade");
+            slider(ui, &mut p[0], -100.0..=100.0, "Cyan ↔ red");
+            slider(ui, &mut p[1], -100.0..=100.0, "Magenta ↔ green");
+            slider(ui, &mut p[2], -100.0..=100.0, "Yellow ↔ blue");
+            ui.checkbox(
+                &mut settings.preserve_luminosity,
+                crate::i18n::ui(ui.ctx(), "Preserve luminosity"),
+            );
         }
         Adjustment::BlackWhite => {
-            for (i, label) in ["Vermelho", "Verde", "Azul"].iter().enumerate() {
+            for (i, label) in ["Red", "Green", "Blue"].iter().enumerate() {
                 slider(ui, &mut p[i], -100.0..=200.0, label);
             }
         }
         Adjustment::PhotoFilter => {
             ui.horizontal(|ui| {
-                ui.label("Cor do filtro");
+                ui.label(crate::i18n::ui(ui.ctx(), "Filter color"));
                 ui.color_edit_button_srgb(&mut settings.colors[0]);
             });
-            slider(ui, &mut p[0], 0.0..=100.0, "Densidade");
-            ui.checkbox(&mut settings.preserve_luminosity, "Preservar luminosidade");
+            slider(ui, &mut p[0], 0.0..=100.0, "Density");
+            ui.checkbox(
+                &mut settings.preserve_luminosity,
+                crate::i18n::ui(ui.ctx(), "Preserve luminosity"),
+            );
         }
         Adjustment::ChannelMixer => {
-            for (row, label) in ["Saída vermelha", "Saída verde", "Saída azul"]
+            for (row, label) in ["Red output", "Green output", "Blue output"]
                 .iter()
                 .enumerate()
             {
                 ui.label(*label);
-                for (col, label) in ["Vermelho", "Verde", "Azul"].iter().enumerate() {
+                for (col, label) in ["Red", "Green", "Blue"].iter().enumerate() {
                     slider(ui, &mut p[row * 3 + col], -200.0..=200.0, label);
                 }
             }
@@ -925,14 +947,14 @@ fn adjustment_controls(ui: &mut egui::Ui, settings: &mut AdjustmentSettings) {
             ui.add(
                 egui::Slider::new(&mut p[0], 2.0..=64.0)
                     .integer()
-                    .text("Níveis por canal"),
+                    .text(crate::i18n::ui(ui.ctx(), "Levels per channel")),
             );
         }
         Adjustment::Threshold => {
             slider(ui, &mut p[0], 0.0..=255.0, "Threshold");
         }
         Adjustment::GradientMap => {
-            for (i, label) in ["Sombras", "Realces"].iter().enumerate() {
+            for (i, label) in ["Shadows", "Highlights"].iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(*label);
                     ui.color_edit_button_srgb(&mut settings.colors[i]);
@@ -940,18 +962,18 @@ fn adjustment_controls(ui: &mut egui::Ui, settings: &mut AdjustmentSettings) {
             }
         }
         Adjustment::ShadowsHighlights => {
-            slider(ui, &mut p[0], 0.0..=100.0, "Clarear sombras");
-            slider(ui, &mut p[1], 0.0..=100.0, "Recuperar realces");
+            slider(ui, &mut p[0], 0.0..=100.0, "Lighten shadows");
+            slider(ui, &mut p[1], 0.0..=100.0, "Recover highlights");
         }
         Adjustment::ReplaceColor => {
-            for (i, label) in ["Cor de origem", "Nova cor"].iter().enumerate() {
+            for (i, label) in ["Source color", "New color"].iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.label(*label);
                     ui.color_edit_button_srgb(&mut settings.colors[i]);
                 });
             }
-            slider(ui, &mut p[0], 0.1..=100.0, "Tolerância");
-            slider(ui, &mut p[1], 0.0..=100.0, "Intensidade");
+            slider(ui, &mut p[0], 0.1..=100.0, "Tolerance");
+            slider(ui, &mut p[1], 0.0..=100.0, "Strength");
         }
         _ => {}
     }
@@ -959,7 +981,10 @@ fn adjustment_controls(ui: &mut egui::Ui, settings: &mut AdjustmentSettings) {
 fn curve_editor(ui: &mut egui::Ui, settings: &mut AdjustmentSettings) {
     crate::theme::caption(
         ui,
-        "Arraste os pontos ou clique na curva para adicionar. Clique direito remove um ponto.",
+        crate::i18n::ui(
+            ui.ctx(),
+            "Drag points or click the curve to add one. Right-click removes a point.",
+        ),
     );
     let nodes = |s: &AdjustmentSettings| {
         if s.curve_points.is_empty() {
@@ -1084,7 +1109,7 @@ fn curve_editor(ui: &mut egui::Ui, settings: &mut AdjustmentSettings) {
             },
         );
     }
-    egui::CollapsingHeader::new("Ajustar com sliders").show(ui, |ui| {
+    egui::CollapsingHeader::new(crate::i18n::ui(ui.ctx(), "Adjust with sliders")).show(ui, |ui| {
         let mut points = nodes(settings);
         let count = points.len();
         for i in 0..count {
@@ -1099,15 +1124,21 @@ fn curve_editor(ui: &mut egui::Ui, settings: &mut AdjustmentSettings) {
                 1.0
             };
             ui.push_id(i, |ui| {
-                ui.label(format!("Ponto {}", i + 1));
+                ui.label(crate::i18n::ui(ui.ctx(), format!("Point {}", i + 1)));
                 let mut changed = false;
                 ui.add_enabled_ui(i > 0 && i + 1 < count, |ui| {
                     changed |= ui
-                        .add(egui::Slider::new(&mut points[i][0], low..=high).text("Entrada"))
+                        .add(
+                            egui::Slider::new(&mut points[i][0], low..=high)
+                                .text(crate::i18n::ui(ui.ctx(), "Input")),
+                        )
                         .changed();
                 });
                 changed |= ui
-                    .add(egui::Slider::new(&mut points[i][1], 0.0..=1.0).text("Saída"))
+                    .add(
+                        egui::Slider::new(&mut points[i][1], 0.0..=1.0)
+                            .text(crate::i18n::ui(ui.ctx(), "Output")),
+                    )
                     .changed();
                 if changed {
                     settings.curve_points = points.clone();
@@ -1120,9 +1151,9 @@ fn curve_editor(ui: &mut egui::Ui, settings: &mut AdjustmentSettings) {
 fn filters() -> [(&'static str, image::imageops::FilterType); 4] {
     use image::imageops::FilterType::*;
     [
-        ("Vizinho mais próximo (pixel art)", Nearest),
+        ("Nearest Neighbor (pixel art)", Nearest),
         ("Bilinear", Triangle),
-        ("Bicúbica", CatmullRom),
+        ("Bicubic", CatmullRom),
         ("Lanczos", Lanczos3),
     ]
 }
@@ -1135,7 +1166,7 @@ fn geometry_controls(ui: &mut egui::Ui, editor: &mut GeometryEditor, doc: &Docum
                 !matches!(editor.kind, GeometryKind::Resize) || editor.resample,
                 |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Largura");
+                        ui.label(crate::i18n::ui(ui.ctx(), "Width"));
                         ui.add(
                             egui::DragValue::new(&mut editor.width)
                                 .range(1..=MAX_SIDE)
@@ -1143,7 +1174,7 @@ fn geometry_controls(ui: &mut egui::Ui, editor: &mut GeometryEditor, doc: &Docum
                         );
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Altura");
+                        ui.label(crate::i18n::ui(ui.ctx(), "Height"));
                         ui.add(
                             egui::DragValue::new(&mut editor.height)
                                 .range(1..=MAX_SIDE)
@@ -1151,7 +1182,10 @@ fn geometry_controls(ui: &mut egui::Ui, editor: &mut GeometryEditor, doc: &Docum
                         );
                     });
                     if matches!(editor.kind, GeometryKind::Resize) {
-                        ui.checkbox(&mut editor.proportion, "Manter proporção");
+                        ui.checkbox(
+                            &mut editor.proportion,
+                            crate::i18n::ui(ui.ctx(), "Constrain proportions"),
+                        );
                         if editor.proportion {
                             if editor.width != old_w {
                                 editor.height = (editor.width as f64 * doc.height as f64
@@ -1172,14 +1206,17 @@ fn geometry_controls(ui: &mut egui::Ui, editor: &mut GeometryEditor, doc: &Docum
             );
             if matches!(editor.kind, GeometryKind::Resize) {
                 ui.horizontal(|ui| {
-                    ui.label("Resolução");
+                    ui.label(crate::i18n::ui(ui.ctx(), "Resolution"));
                     ui.add(
                         egui::DragValue::new(&mut editor.dpi)
                             .range(1..=crate::document::MAX_DPI)
                             .suffix(" DPI"),
                     );
                 });
-                ui.checkbox(&mut editor.resample, "Reamostrar pixels");
+                ui.checkbox(
+                    &mut editor.resample,
+                    crate::i18n::ui(ui.ctx(), "Resample pixels"),
+                );
                 ui.add_enabled_ui(editor.resample, |ui| {
                     egui::ComboBox::from_id_salt("resize_filter")
                         .selected_text(filters()[editor.filter].0)
@@ -1196,18 +1233,24 @@ fn geometry_controls(ui: &mut egui::Ui, editor: &mut GeometryEditor, doc: &Docum
                 };
                 crate::theme::caption(
                     ui,
-                    format!(
-                        "Impressão: {:.2} × {:.2} cm",
-                        w as f64 / editor.dpi.max(1) as f64 * 2.54,
-                        h as f64 / editor.dpi.max(1) as f64 * 2.54
+                    crate::i18n::ui(
+                        ui.ctx(),
+                        format!(
+                            "Print size: {:.2} × {:.2} cm",
+                            w as f64 / editor.dpi.max(1) as f64 * 2.54,
+                            h as f64 / editor.dpi.max(1) as f64 * 2.54
+                        ),
                     ),
                 );
                 crate::theme::caption(
                     ui,
-                    "Sem reamostragem, apenas o DPI muda; os pixels são preservados.",
+                    crate::i18n::ui(
+                        ui.ctx(),
+                        "Without resampling, only DPI changes; pixels are preserved.",
+                    ),
                 );
             } else {
-                ui.label("Âncora do conteúdo");
+                ui.label(crate::i18n::ui(ui.ctx(), "Content anchor"));
                 egui::Grid::new("canvas_anchor").show(ui, |ui| {
                     for y in 0..3 {
                         for x in 0..3 {
@@ -1227,14 +1270,20 @@ fn geometry_controls(ui: &mut egui::Ui, editor: &mut GeometryEditor, doc: &Docum
                 });
                 crate::theme::caption(
                     ui,
-                    "A área nova é transparente. Reduzir a tela corta os pixels fora dela.",
+                    crate::i18n::ui(
+                        ui.ctx(),
+                        "New areas are transparent. Shrinking the canvas crops pixels outside it.",
+                    ),
                 );
             }
             let bytes = editor.width as u64 * editor.height as u64 * 4 * doc.layers.len() as u64;
             if bytes > 256 * 1024 * 1024 {
                 ui.colored_label(
                     ui.visuals().error_fg_color,
-                    "O resultado excede 256 MiB. Reduza as dimensões ou o número de camadas.",
+                    crate::i18n::ui(
+                        ui.ctx(),
+                        "The result exceeds 256 MiB. Reduce the dimensions or number of layers.",
+                    ),
                 );
             }
         }
@@ -1242,27 +1291,30 @@ fn geometry_controls(ui: &mut egui::Ui, editor: &mut GeometryEditor, doc: &Docum
             ui.add(
                 egui::Slider::new(&mut editor.angle, -180.0..=180.0)
                     .suffix("°")
-                    .text("Ângulo horário"),
+                    .text(crate::i18n::ui(ui.ctx(), "Clockwise angle")),
             );
             crate::theme::caption(
                 ui,
-                "A tela expande para acomodar a imagem; os cantos ficam transparentes.",
+                crate::i18n::ui(
+                    ui.ctx(),
+                    "The canvas expands to fit the image; corners become transparent.",
+                ),
             );
         }
         GeometryKind::Trim => {
             egui::ComboBox::from_id_salt("trim_mode")
                 .selected_text(
                     [
-                        "Pixels transparentes",
-                        "Cor do canto superior esquerdo",
-                        "Cor do canto inferior direito",
+                        "Transparent pixels",
+                        "Top-left corner color",
+                        "Bottom-right corner color",
                     ][editor.corner as usize],
                 )
                 .show_ui(ui, |ui| {
                     for (i, label) in [
-                        "Pixels transparentes",
-                        "Cor do canto superior esquerdo",
-                        "Cor do canto inferior direito",
+                        "Transparent pixels",
+                        "Top-left corner color",
+                        "Bottom-right corner color",
                     ]
                     .iter()
                     .enumerate()
@@ -1270,15 +1322,21 @@ fn geometry_controls(ui: &mut egui::Ui, editor: &mut GeometryEditor, doc: &Docum
                         ui.selectable_value(&mut editor.corner, i as u8, *label);
                     }
                 });
-            ui.add(egui::Slider::new(&mut editor.tolerance, 0..=64).text("Tolerância"));
+            ui.add(
+                egui::Slider::new(&mut editor.tolerance, 0..=64)
+                    .text(crate::i18n::ui(ui.ctx(), "Tolerance")),
+            );
             ui.horizontal_wrapped(|ui| {
-                for (i, label) in ["Esquerda", "Topo", "Direita", "Base"].iter().enumerate() {
+                for (i, label) in ["Left", "Top", "Right", "Bottom"].iter().enumerate() {
                     ui.checkbox(&mut editor.sides[i], *label);
                 }
             });
             crate::theme::caption(
                 ui,
-                "Os limites são calculados pela composição das camadas visíveis.",
+                crate::i18n::ui(
+                    ui.ctx(),
+                    "Bounds are calculated from the visible layer composite.",
+                ),
             );
         }
     }
@@ -1375,7 +1433,7 @@ mod tests {
                 height: 10,
                 anchor: [1, 1],
             },
-            "Tamanho da tela",
+            "Canvas size",
             Some(600),
         );
         finish_job(&mut app, &ctx);
@@ -1453,11 +1511,11 @@ mod tests {
                         let mut value = 0.5;
                         let mut slider_rect = egui::Rect::NOTHING;
                         let mut button_rect = egui::Rect::NOTHING;
-                        let response = effect_window(ctx, "stable_effect_test", "Filtro", false)
+                        let response = effect_window(ctx, "stable_effect_test", "Filter", false)
                             .show(ctx, |ui| {
                                 slider_rect = ui.add(egui::Slider::new(&mut value, 0.0..=1.0)).rect;
-                                processing_status(ui, busy, "Processando…", error.as_deref());
-                                button_rect = ui.button("Aplicar").rect;
+                                processing_status(ui, busy, "Processing…", error.as_deref());
+                                button_rect = ui.button(crate::i18n::ui(ui.ctx(), "Apply")).rect;
                             })
                             .unwrap();
                         let layout = (response.response.rect, slider_rect, button_rect);

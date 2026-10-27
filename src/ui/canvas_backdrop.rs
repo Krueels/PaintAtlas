@@ -243,7 +243,9 @@ impl PaintAtlas {
             ctx.input(|i| i.viewport().inner_rect.map_or(Pos2::ZERO, |r| r.min));
         if !self.startup_canvas_required {
             self.sync_layer_textures(ctx);
-            if let Some(view) = self.background_view() {
+            if self.startup_transition.is_none()
+                && let Some(view) = self.background_view()
+            {
                 painter.set(
                     slot,
                     egui::Shape::Vec(self.canvas_document_shapes(ctx.content_rect(), view)),
@@ -320,8 +322,8 @@ impl PaintAtlas {
                             image.height() as u32,
                             image::ColorType::Rgba8,
                         ) {
-                            Ok(()) => eprintln!("Screenshot nativa: {}", path.display()),
-                            Err(e) => eprintln!("Screenshot nativa: {e}"),
+                            Ok(()) => eprintln!("Native screenshot: {}", path.display()),
+                            Err(e) => eprintln!("Native screenshot: {e}"),
                         }
                     },
                 )),
@@ -398,7 +400,7 @@ mod tests {
                     egui::SidePanel::left("glass_panel")
                         .exact_width(110.0)
                         .show(ctx, |ui| {
-                            ui.label("Painel");
+                            ui.label(crate::i18n::ui(ui.ctx(), "Panel"));
                         });
                     egui::CentralPanel::default()
                         .frame(egui::Frame::NONE)

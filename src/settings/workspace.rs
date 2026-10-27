@@ -43,17 +43,17 @@ impl Panel {
     pub fn title(self) -> &'static str {
         match self {
             Self::Canvas => "Canvas",
-            Self::Tools => "Ferramentas",
-            Self::Properties => "Propriedades",
-            Self::Brushes => "Pincéis",
-            Self::Colors => "Cores",
-            Self::Layers => "Camadas",
-            Self::Navigation => "Navegação",
+            Self::Tools => "Tools",
+            Self::Properties => "Properties",
+            Self::Brushes => "Brushes",
+            Self::Colors => "Colors",
+            Self::Layers => "Layers",
+            Self::Navigation => "Navigation",
             Self::BrushSizes => "Brush Sizes",
             Self::Files => "File",
-            Self::Help => "Ajuda",
-            Self::Settings => "Configurações",
-            Self::References => "Referências",
+            Self::Help => "Help",
+            Self::Settings => "Settings",
+            Self::References => "References",
         }
     }
     pub fn localized_title(self, language: crate::i18n::Language) -> &'static str {
@@ -275,10 +275,10 @@ impl Layout {
     }
 }
 pub fn translate(dock: &mut DockState<Panel>) {
-    dock.translations.tab_context_menu.close_button = "Ocultar painel".into();
-    dock.translations.tab_context_menu.eject_button = "Desacoplar".into();
-    dock.translations.leaf.close_all_button = "Fechar grupo".into();
-    dock.translations.leaf.minimize_button = "Recolher grupo".into();
+    dock.translations.tab_context_menu.close_button = "Hide panel".into();
+    dock.translations.tab_context_menu.eject_button = "Undock".into();
+    dock.translations.leaf.close_all_button = "Close group".into();
+    dock.translations.leaf.minimize_button = "Collapse group".into();
 }
 pub struct Workspace {
     pub layout: Layout,
@@ -304,7 +304,7 @@ impl Workspace {
     }
     pub fn read(path: &Path) -> Result<Layout, String> {
         if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > 512 * 1024 {
-            return Err("Layout muito grande".into());
+            return Err("Layout is too large".into());
         }
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
         let layout: Layout = bincode::DefaultOptions::new()
@@ -312,7 +312,7 @@ impl Workspace {
             .deserialize(&bytes)
             .map_err(|e| e.to_string())?;
         if !layout.valid() {
-            return Err("Layout inválido".into());
+            return Err("Invalid layout".into());
         }
         Ok(layout)
     }

@@ -30,11 +30,11 @@ impl Accent {
     }
     pub fn name(self) -> &'static str {
         match self {
-            Self::Blue => "Azul",
-            Self::Mint => "Menta",
-            Self::Violet => "Violeta",
-            Self::Rose => "Rosa",
-            Self::Orange => "Âmbar",
+            Self::Blue => "Blue",
+            Self::Mint => "Mint",
+            Self::Violet => "Violet",
+            Self::Rose => "Pink",
+            Self::Orange => "Amber",
         }
     }
 }
@@ -98,7 +98,7 @@ pub fn install_fonts(ctx: &egui::Context) {
             .get_mut(&egui::FontFamily::Proportional)
             .unwrap()
             .insert(0, "SF Pro Text".into());
-        eprintln!("Fonte da interface: SF Pro Text ({})", path.display());
+        eprintln!("Interface font: SF Pro Text ({})", path.display());
     }
     ctx.set_fonts(fonts);
 }
@@ -357,6 +357,7 @@ pub fn caption(ui: &mut egui::Ui, text: impl Into<egui::RichText>) -> Response {
     ui.label(text.into().small().color(ui.visuals().weak_text_color()))
 }
 pub fn button(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>) -> Response {
+    let text = crate::i18n::widget(ui.ctx(), text);
     let r = ui.button(text);
     feedback(ui, &r);
     r
@@ -364,7 +365,7 @@ pub fn button(ui: &mut egui::Ui, text: impl Into<egui::WidgetText>) -> Response 
 pub fn toggle(ui: &mut egui::Ui, on: &mut bool, label: &str) -> Response {
     ui.horizontal_wrapped(|ui| {
         let (rect, track) = ui.allocate_exact_size(Vec2::new(32.0, 18.0), Sense::click());
-        let text = ui.add(egui::Label::new(label).sense(Sense::click()));
+        let text = ui.add(egui::Label::new(crate::i18n::ui(ui.ctx(), label)).sense(Sense::click()));
         let mut response = track.union(text);
         if response.clicked() {
             *on = !*on;
@@ -434,13 +435,16 @@ pub fn tool_button(
         p.text(
             Pos2::new(rect.left() + 26.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
-            text,
+            crate::i18n::ui(ui.ctx(), text),
             egui::FontId::proportional(11.5),
             visuals.text_color(),
         );
     }
     feedback(ui, &r);
-    r.on_hover_text(format!("{text} · Atalho: {}", shortcut))
+    r.on_hover_text(crate::i18n::ui(
+        ui.ctx(),
+        format!("{text} · Shortcut: {}", shortcut),
+    ))
 }
 fn icon(p: &egui::Painter, center: Pos2, tool: crate::document::Tool, color: Color32) {
     use crate::document::Tool;

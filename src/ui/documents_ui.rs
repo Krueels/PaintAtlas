@@ -74,20 +74,17 @@ impl PaintAtlas {
     pub(super) fn document_change_allowed(&mut self) -> bool {
         if self.quick_shape.as_ref().is_some_and(|e| e.editing) {
             self.status =
-                "Aplique a QuickShape ou restaure o traço original antes de trocar de canvas."
-                    .into();
+                "Apply QuickShape or restore the original stroke before switching canvases.".into();
             return false;
         }
         self.finish_quickshape(false);
         if self.image_editor.is_some() {
-            self.status =
-                "Aplique ou cancele a operação de imagem antes de trocar de canvas.".into();
+            self.status = "Apply or cancel the image operation before switching canvases.".into();
             return false;
         }
         if self.gesture.is_some() || self.ruler_ui.editing() || self.selection.floating.is_some() {
             self.status =
-                "Termine o traço ou aplique/cancele a transformação antes de trocar de tela."
-                    .into();
+                "Finish the stroke or apply/cancel the transform before switching canvases.".into();
             false
         } else {
             true
@@ -174,7 +171,7 @@ impl PaintAtlas {
         self.next_document_id += 1;
         self.documents.push(Tab {
             id,
-            name: format!("Sem título {id}"),
+            name: format!("Untitled {id}"),
             session: None,
         });
         self.active_document = self.documents.len() - 1;
@@ -268,19 +265,19 @@ impl PaintAtlas {
                                     self.document_title(index),
                                 );
                                 if response.hovered() {
-                                    response.clone().on_hover_text(format!(
-                                        "Estimativa de memória CPU (documentos, histórico, conta-gotas, exportação e tarefas de imagem): {:.1} MiB\nTextura do conta-gotas (estimativa; backend/GPU): {:.1} MiB\nTextura da prévia de exportação (estimativa; backend/GPU): {:.1} MiB",
+                                    response.clone().on_hover_text(crate::i18n::ui(ui.ctx(), format!(
+                                        "Estimated CPU memory (documents, history, eyedropper, export, and image tasks): {:.1} MiB\nEyedropper texture (estimate; backend/GPU): {:.1} MiB\nExport preview texture (estimate; backend/GPU): {:.1} MiB",
                                         self.retained_document_memory_bytes() as f64 / (1024.0 * 1024.0),
                                         self.retained_picker_texture_bytes() as f64 / (1024.0 * 1024.0),
                                         self.retained_export_preview_texture_bytes() as f64 / (1024.0 * 1024.0)
-                                    ));
+                                    )));
                                 }
                                 if response.clicked() {
                                     switch = Some(index);
                                 }
                                 if ui
                                     .small_button("×")
-                                    .on_hover_text("Fechar tela · Ctrl+W")
+                                    .on_hover_text(crate::i18n::ui(ui.ctx(), "Close canvas · Ctrl+W"))
                                     .clicked()
                                 {
                                     close = Some(id);
@@ -290,7 +287,7 @@ impl PaintAtlas {
                         }
                         new = ui
                             .small_button("+")
-                            .on_hover_text("Nova tela · Ctrl+N")
+                            .on_hover_text(crate::i18n::ui(ui.ctx(), "New canvas · Ctrl+N"))
                             .clicked();
                     });
                 });
