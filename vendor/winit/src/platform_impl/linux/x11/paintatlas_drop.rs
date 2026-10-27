@@ -1,4 +1,5 @@
 //! Pure XDND URI parser, shared with PaintAtlas regression tests.
+use base64::Engine;
 use percent_encoding::percent_decode;
 use std::{
     io,
@@ -13,6 +14,8 @@ pub enum DndDataParseError {
     HostnameSpecified(#[allow(dead_code)] String),
     UnexpectedProtocol(#[allow(dead_code)] String),
     UnresolvablePath(#[allow(dead_code)] io::Error),
+    UnsupportedMime,
+    ImageTooLarge,
 }
 
 impl From<Utf8Error> for DndDataParseError {
@@ -65,6 +68,23 @@ pub fn parse_uri_data(data: &[u8]) -> Result<Vec<PathBuf>, DndDataParseError> {
     }
 }
 
+pub fn parse_target_data(data: &[u8], mime: &str) -> Result<Vec<PathBuf>, DndDataParseError> {
+    match mime {
+        "text/uri-list" | "text/plain" | "text/plain;charset=utf-8" | "UTF8_STRING" => {
+            parse_uri_data(data)
+        }
+        "image/png" | "image/jpeg" | "image/webp" | "image/gif" | "image/bmp" => {
+            const MAX_IMAGE_BYTES: usize = 32 * 1024 * 1024;
+            if data.len() > MAX_IMAGE_BYTES {
+                return Err(DndDataParseError::ImageTooLarge);
+            }
+            let encoded = base64::engine::general_purpose::STANDARD.encode(data);
+            Ok(vec![PathBuf::from(format!("data:{mime};base64,{encoded}"))])
+        }
+        _ => Err(DndDataParseError::UnsupportedMime),
+    }
+}
+
 #[cfg(test)]
 mod paintatlas_tests {
     use super::*;
@@ -90,5 +110,24 @@ mod paintatlas_tests {
             vec![path.canonicalize().unwrap()]
         );
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn brave_style_image_mime_becomes_a_data_uri_and_text_targets_remain_supported() {
+        let png = b"fake-png-data";
+        let paths = parse_target_data(png, "image/png").unwrap();
+        let value = paths[0].to_str().unwrap();
+        assert!(value.starts_with("data:image/png;base64,"));
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(value.split_once(',').unwrap().1)
+                .unwrap(),
+            png
+        );
+        assert_eq!(
+            parse_target_data(b"https://example.com/image", "text/plain").unwrap()[0],
+            PathBuf::from("https://example.com/image")
+        );
+        assert!(parse_target_data(b"<html>", "text/html").is_err());
     }
 }

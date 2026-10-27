@@ -61,12 +61,23 @@ impl PaintAtlas {
         };
         let job = self.image_import.as_ref().unwrap();
         let progress = (job.received, job.total);
+        // Retain the release position across asynchronous browser downloads.
+        let origin = job.origin.unwrap_or_else(|| {
+            self.last_canvas_bounds
+                .unwrap_or(ctx.content_rect())
+                .center()
+        });
         if progress.0 >= progress.1 {
             self.image_import = None;
         }
         match result {
             Ok(loaded) => {
                 if self.documents.is_empty() || self.startup_canvas_required {
+                    let transition = super::startup_ui::Transition::from_drop(
+                        ctx,
+                        Vec2::new(loaded.image.size[0] as f32, loaded.image.size[1] as f32),
+                        origin,
+                    );
                     let mut doc = match Document::try_from_rgba(
                         loaded.image.size[0] as u32,
                         loaded.image.size[1] as u32,
@@ -80,12 +91,27 @@ impl PaintAtlas {
                     };
                     doc.layers[0].name = loaded.name;
                     self.add_document(doc, None, true);
+                    self.begin_startup_transition(ctx, transition);
                     self.color = Color32::BLACK;
                     self.status = "Image opened in a new canvas.".into();
-                } else if let Err(e) = self.paste_image(ctx, loaded.image) {
-                    self.status = e;
-                } else if let Some(f) = &mut self.selection.floating {
-                    f.name = Some(loaded.name);
+                } else {
+                    let preview = (!crate::theme::reduced_motion(ctx))
+                        .then(|| super::clipboard_motion::thumbnail(ctx, &loaded.image));
+                    if let Err(e) = self.paste_image(ctx, loaded.image) {
+                        self.status = e;
+                    } else {
+                        if let Some(f) = &mut self.selection.floating {
+                            f.name = Some(loaded.name);
+                        }
+                        if let Some(preview) = preview {
+                            let target = self
+                                .selection
+                                .floating
+                                .as_ref()
+                                .and_then(|f| self.clipboard_quad(f.bounds));
+                            self.clipboard_motion.dropped(ctx, preview, origin, target);
+                        }
+                    }
                 }
                 if let Some(job) = &mut self.image_import
                     && job.target.is_none()

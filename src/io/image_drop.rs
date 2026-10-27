@@ -240,6 +240,7 @@ pub struct Loaded {
 }
 pub struct Job {
     pub target: Option<u64>,
+    pub origin: Option<egui::Pos2>,
     pub total: usize,
     pub received: usize,
     receiver: Receiver<Result<Loaded, String>>,
@@ -252,6 +253,7 @@ impl Job {
         ctx: egui::Context,
     ) -> Result<Self, String> {
         let sources = sources(files)?;
+        let origin = ctx.input(|i| i.pointer.latest_pos());
         let total = sources.len();
         let (sender, receiver) = mpsc::sync_channel(1);
         let cancelled = Arc::new(Cancellation::default());
@@ -273,6 +275,7 @@ impl Job {
             .map_err(|e| format!("Could not start importing: {e}"))?;
         Ok(Self {
             target,
+            origin,
             total,
             received: 0,
             receiver,

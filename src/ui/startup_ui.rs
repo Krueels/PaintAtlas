@@ -7,20 +7,51 @@ pub(super) struct Transition {
     source: egui::Rect,
     elapsed: f32,
     fade_image: bool,
+    dropped: bool,
 }
 
 impl Transition {
+    fn from_preview(ctx: &egui::Context, preview: egui::Rect, size: Vec2) -> Option<Self> {
+        if crate::theme::reduced_motion(ctx) {
+            return None;
+        }
+        let scale = (preview.width() / size.x).min(preview.height() / size.y);
+        let mut transition =
+            Self::new(egui::Rect::from_center_size(preview.center(), size * scale));
+        transition.fade_image = true;
+        Some(transition)
+    }
+    pub(super) fn from_drop(ctx: &egui::Context, size: Vec2, origin: Pos2) -> Option<Self> {
+        if crate::theme::reduced_motion(ctx) {
+            return None;
+        }
+        let source = egui::Rect::from_center_size(origin, size * (80.0 / size.max_elem()));
+        let mut transition = Self::new(source);
+        transition.fade_image = true;
+        transition.dropped = true;
+        Some(transition)
+    }
     pub(super) fn new(source: egui::Rect) -> Self {
         Self {
             source,
             elapsed: 0.0,
             fade_image: false,
+            dropped: false,
         }
     }
 
     fn progress(&self) -> f32 {
-        let t = (self.elapsed / TRANSITION_DURATION).clamp(0.0, 1.0);
-        t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+        let duration = if self.dropped {
+            0.54
+        } else {
+            TRANSITION_DURATION
+        };
+        let t = (self.elapsed / duration).clamp(0.0, 1.0);
+        if self.dropped {
+            1.0 - (1.0 - t).powi(3)
+        } else {
+            t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+        }
     }
 
     fn opacity(&self) -> f32 {
@@ -52,13 +83,24 @@ impl PaintAtlas {
         if !self.startup_canvas_required || crate::theme::reduced_motion(ctx) {
             return None;
         }
-        let preview = self.startup_preview?;
-        // The copied image may have a different aspect ratio from the creation defaults.
-        let scale = (preview.width() / size.x).min(preview.height() / size.y);
-        let mut transition =
-            Transition::new(egui::Rect::from_center_size(preview.center(), size * scale));
-        transition.fade_image = true;
-        Some(transition)
+        Transition::from_preview(ctx, self.startup_preview?, size)
+    }
+
+    pub(super) fn open_startup_file(&mut self, ctx: &egui::Context) {
+        // Capture the splash geometry before opening resets document/view state.
+        let preview = self
+            .startup_canvas_required
+            .then_some(self.startup_preview)
+            .flatten();
+        self.perform(Action::Open);
+        if let Some(preview) = preview
+            && !self.startup_canvas_required
+        {
+            // Animate the active document only after a successful open. A canceled
+            // picker or failed import leaves the splash and its preview intact.
+            let size = Vec2::new(self.doc.width as f32, self.doc.height as f32);
+            self.begin_startup_transition(ctx, Transition::from_preview(ctx, preview, size));
+        }
     }
 
     pub(super) fn begin_startup_transition(
@@ -218,6 +260,10 @@ impl PaintAtlas {
     }
 
     fn startup_form(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        if self.close_motion.active() {
+            ui.visuals_mut().disabled_alpha = 1.0;
+            ui.disable();
+        }
         ui.spacing_mut().item_spacing = Vec2::new(12.0, 16.0);
         ui.label(
             egui::RichText::new("PAINT ATLAS")
@@ -235,7 +281,7 @@ impl PaintAtlas {
                 )
                 .clicked()
             {
-                self.perform(Action::Open);
+                self.open_startup_file(ctx);
             }
             if ui
                 .add_sized(

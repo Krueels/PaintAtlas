@@ -90,6 +90,13 @@ atom_manager! {
     XdndFinished,
     XdndTypeList,
     TextUriList: b"text/uri-list",
+    TextPlain: b"text/plain",
+    TextPlainUtf8: b"text/plain;charset=utf-8",
+    ImagePng: b"image/png",
+    ImageJpeg: b"image/jpeg",
+    ImageWebp: b"image/webp",
+    ImageGif: b"image/gif",
+    ImageBmp: b"image/bmp",
     None: b"None",
 
     // Miscellaneous Atoms

@@ -87,6 +87,92 @@ fn supported(path: &Path) -> bool {
         )
     })
 }
+fn dropped_name(file: &egui::DroppedFile) -> String {
+    if !file.name.is_empty() {
+        return file.name.clone();
+    }
+    if let Some(path) = &file.path {
+        if let Some(text) = path.to_str() {
+            if text.starts_with("data:image/") {
+                return "browser-image.png".into();
+            }
+            if let Ok(url) = url::Url::parse(text) {
+                if let Some(name) = url.path_segments().and_then(Iterator::last) {
+                    if !name.is_empty() {
+                        return name.to_owned();
+                    }
+                }
+            }
+            return path
+                .file_name()
+                .unwrap_or(path.as_os_str())
+                .to_string_lossy()
+                .into_owned();
+        }
+    }
+    "reference-image".into()
+}
+fn reference_assets_dir() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+        && let Some(root) = dir
+            .ancestors()
+            .take(5)
+            .find(|ancestor| ancestor.join("assets/default_brushes").is_dir())
+    {
+        return root.join("assets/references");
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/references")
+}
+fn save_downloaded_image(
+    image: &crate::clipboard::Image,
+    original_name: &str,
+    dir: &Path,
+) -> Result<PathBuf, String> {
+    image.validate()?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("Could not create references folder: {e}"))?;
+    let stem = Path::new(original_name)
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let mut safe = String::new();
+    for ch in stem.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+            safe.push(ch);
+        } else if ch.is_whitespace() && !safe.ends_with('-') {
+            safe.push('-');
+        }
+    }
+    let safe = safe.trim_matches('-');
+    let stem = if safe.is_empty() {
+        "reference-image"
+    } else {
+        safe
+    };
+    let pixels = image::RgbaImage::from_raw(
+        image.size[0] as u32,
+        image.size[1] as u32,
+        image.pixels.clone(),
+    )
+    .ok_or_else(|| "The downloaded image has invalid pixels.".to_owned())?;
+    let mut index = 1usize;
+    loop {
+        let filename = if index == 1 {
+            format!("{stem}.png")
+        } else {
+            format!("{stem}-{index}.png")
+        };
+        let path = dir.join(filename);
+        if path.exists() {
+            index += 1;
+            continue;
+        }
+        pixels
+            .save(&path)
+            .map_err(|e| format!("Could not save downloaded reference: {e}"))?;
+        return Ok(path);
+    }
+}
 fn picker() -> rfd::FileDialog {
     rfd::FileDialog::new()
         .set_title("Reference images — link originals")
@@ -126,9 +212,26 @@ fn load(path: &Path) -> Result<Loaded, String> {
 }
 type Preview = Result<(TextureHandle, Vec2), String>;
 type LoadJob = (PathBuf, Receiver<Result<Loaded, String>>);
+struct DownloadOrigin {
+    rect: Rect,
+    viewport: egui::ViewportId,
+}
+struct Arrival {
+    origin: DownloadOrigin,
+    path: PathBuf,
+    elapsed: f32,
+    button_elapsed: Option<f32>,
+}
 enum Confirmation {
-    Remove { index: usize, path: PathBuf },
+    Remove {
+        index: usize,
+        path: PathBuf,
+    },
     Clear,
+    SaveDropped {
+        file: egui::DroppedFile,
+        name: String,
+    },
 }
 #[derive(Default)]
 pub struct State {
@@ -137,6 +240,8 @@ pub struct State {
     bounds: Option<(egui::ViewportId, Rect, egui::LayerId, u64)>,
     notice: String,
     confirmation: Option<Confirmation>,
+    download: Option<(crate::image_drop::Job, String, DownloadOrigin)>,
+    arrival: Option<Arrival>,
 }
 impl State {
     pub fn ready(&self) -> bool {
@@ -159,19 +264,56 @@ impl State {
         if files.is_empty() {
             return false;
         }
-        let paths: Vec<_> = files
-            .into_iter()
-            .filter_map(|f| f.path)
-            .filter(|p| supported(p))
-            .collect();
-        self.notice = if paths.is_empty() {
-            "Save the image to your computer and link the original file.".into()
-        } else {
-            String::new()
-        };
-        library.add(paths)
+        self.handle_files(files, library)
+    }
+    fn handle_files(&mut self, files: Vec<egui::DroppedFile>, library: &mut Library) -> bool {
+        let mut local_paths = Vec::new();
+        let mut changed = false;
+        for file in files {
+            let uri_path = file.path.as_ref().is_some_and(|path| {
+                path.to_str()
+                    .is_some_and(|text| text.starts_with("data:") || text.contains("://"))
+            });
+            if let Some(path) = file.path.as_ref().filter(|_| !uri_path) {
+                if supported(path) {
+                    local_paths.push(path.clone());
+                }
+                continue;
+            }
+            let job_file = file.clone();
+            match crate::image_drop::sources(vec![file]) {
+                Ok(mut sources) => match sources.remove(0) {
+                    Ok(
+                        crate::image_drop::Source::Bytes(_)
+                        | crate::image_drop::Source::Data(_)
+                        | crate::image_drop::Source::Remote(_),
+                    ) => {
+                        // Keep the browser payload until the user confirms downloading it.
+                        self.confirmation = Some(Confirmation::SaveDropped {
+                            name: dropped_name(&job_file),
+                            file: job_file,
+                        });
+                        self.notice = "Confirm to download and save the browser image.".into();
+                    }
+                    Ok(crate::image_drop::Source::File(path)) if supported(&path) => {
+                        local_paths.push(path);
+                    }
+                    _ => self.notice = "Drop an image file onto the references panel.".into(),
+                },
+                Err(error) => self.notice = error,
+            }
+        }
+        changed |= library.add(local_paths);
+        changed
     }
     fn poll(&mut self, ctx: &egui::Context, path: Option<&Path>) {
+        if self
+            .arrival
+            .as_ref()
+            .is_some_and(|flight| Some(flight.path.as_path()) != path)
+        {
+            self.arrival = None;
+        }
         if self
             .cached
             .as_ref()
@@ -225,6 +367,13 @@ impl State {
             });
             self.job = Some((path, rx));
         }
+        if self
+            .cached
+            .as_ref()
+            .is_some_and(|(_, preview)| preview.is_err())
+        {
+            self.arrival = None;
+        }
         if self.job.is_some() {
             ctx.request_repaint_after(Duration::from_millis(25));
         }
@@ -237,17 +386,33 @@ impl State {
             ui.ctx().cumulative_frame_nr(),
         ));
         let mut changed = self.take_drop(ui.ctx(), library);
+        changed |= self.poll_download(ui.ctx(), library);
         ui.horizontal_wrapped(|ui| {
-            if ui
+            let add = ui
                 .button(crate::i18n::ui(ui.ctx(), "Add…"))
                 .on_hover_text(crate::i18n::ui(
                     ui.ctx(),
                     "Links local images without copying them into the project",
-                ))
-                .clicked()
+                ));
+            if add.clicked()
                 && let Some(paths) = picker().pick_files()
             {
+                let has_image = paths.iter().any(|path| supported(path));
                 changed |= library.add(paths);
+                if has_image && let Some(entry) = library.images.get(library.selected) {
+                    // Wait for the asynchronous preview before flying from Add to the view.
+                    // Local references remain linked to their original files.
+                    self.arrival = (!crate::theme::reduced_motion(ui.ctx())).then(|| Arrival {
+                        origin: DownloadOrigin {
+                            rect: add.rect,
+                            viewport: ui.ctx().viewport_id(),
+                        },
+                        path: entry.path.clone(),
+                        elapsed: 0.0,
+                        button_elapsed: None,
+                    });
+                    ui.ctx().request_repaint();
+                }
             }
             if ui
                 .add_enabled(!library.images.is_empty(), egui::Button::new("‹"))
@@ -448,13 +613,62 @@ impl State {
                         rect.center() + Vec2::from(entry.pan),
                         size * fit_scale * entry.zoom,
                     );
-                    painter.rect_filled(image_rect.intersect(rect), 0.0, Color32::from_gray(100));
-                    painter.image(
-                        texture.id(),
-                        image_rect,
-                        Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                        Color32::WHITE,
-                    );
+                    if self
+                        .arrival
+                        .as_ref()
+                        .is_some_and(|flight| flight.path != entry.path)
+                        || (crate::theme::reduced_motion(ui.ctx())
+                            && self
+                                .arrival
+                                .as_ref()
+                                .is_some_and(|flight| flight.button_elapsed.is_none()))
+                    {
+                        self.arrival = None;
+                    }
+                    if let Some(flight) = &mut self.arrival {
+                        if flight.button_elapsed.is_none() {
+                            flight.elapsed += ui.input(|i| i.stable_dt).min(0.05);
+                            let t = (flight.elapsed / 0.65).clamp(0.0, 1.0);
+                            let eased = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+                            let source_size = size
+                                * (flight.origin.rect.height() / size.y)
+                                    .min(flight.origin.rect.width() / size.x);
+                            let arc = Vec2::new(0.0, -45.0 * (std::f32::consts::PI * t).sin());
+                            let center =
+                                flight.origin.rect.center().lerp(image_rect.center(), eased) + arc;
+                            let flying_rect = Rect::from_center_size(
+                                center,
+                                source_size * (1.0 - eased) + image_rect.size() * eased,
+                            );
+                            ui.ctx()
+                                .layer_painter(egui::LayerId::new(
+                                    egui::Order::Foreground,
+                                    egui::Id::new("reference-download-arrival"),
+                                ))
+                                .image(
+                                    texture.id(),
+                                    flying_rect,
+                                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                                    Color32::WHITE,
+                                );
+                            ui.ctx().request_repaint();
+                            if t >= 1.0 || flight.origin.viewport != ui.ctx().viewport_id() {
+                                self.arrival = None;
+                            }
+                        }
+                    } else {
+                        painter.rect_filled(
+                            image_rect.intersect(rect),
+                            0.0,
+                            Color32::from_gray(100),
+                        );
+                        painter.image(
+                            texture.id(),
+                            image_rect,
+                            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
+                    }
                 }
                 painter.text(
                     rect.left_bottom() + Vec2::new(8.0, -8.0),
@@ -491,10 +705,18 @@ impl State {
         };
         let mut confirm = false;
         let mut cancel = false;
+        let mut button_rect = Rect::NOTHING;
+        let busy = self.download.is_some()
+            || self
+                .arrival
+                .as_ref()
+                .is_some_and(|flight| flight.button_elapsed.is_some());
+        let mut depart = false;
         let modal = egui::Modal::new(egui::Id::new("reference_remove_confirmation"))
             .backdrop_color(Color32::TRANSPARENT)
             .show(ctx, |ui| {
                 ui.set_max_width(340.0);
+                ui.set_min_width(340.0);
                 let (title, message, button) = match &action {
                     Confirmation::Remove { path, .. } => (
                         "Remove reference?",
@@ -509,17 +731,66 @@ impl State {
                         ),
                         "Clear list",
                     ),
+                    Confirmation::SaveDropped { name, .. } => (
+                        "Save image to references?",
+                        format!("Download “{name}” and save a copy in assets/references?"),
+                        "Save image",
+                    ),
                 };
                 ui.heading(crate::i18n::ui(ui.ctx(), title));
                 ui.label(crate::i18n::ui(ui.ctx(), message));
                 ui.weak(crate::i18n::ui(
                     ui.ctx(),
-                    "Original files will not be deleted.",
+                    if matches!(&action, Confirmation::SaveDropped { .. }) {
+                        "This saves a copy in assets/references and does not change the canvas or clipboard."
+                    } else {
+                        "Original files will not be deleted."
+                    },
                 ));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    cancel = ui.button(crate::i18n::ui(ui.ctx(), "Cancel")).clicked();
-                    confirm = ui.button(button).clicked();
+                    cancel = ui.add_enabled(
+                        !self.arrival.as_ref().is_some_and(|flight| flight.button_elapsed.is_some()),
+                        egui::Button::new(crate::i18n::ui(ui.ctx(), "Cancel")),
+                    ).clicked();
+                    let is_download = matches!(&action, Confirmation::SaveDropped { .. });
+                    let label = if busy { String::new() } else { crate::i18n::ui(ui.ctx(), button) };
+                    let mut widget = egui::Button::new(label);
+                    if is_download {
+                        widget = widget.min_size(Vec2::new(150.0, 64.0));
+                    }
+                    let response = ui.add_enabled(!busy, widget);
+                    button_rect = response.rect;
+                    confirm = response.clicked();
+                    if busy && is_download {
+                        let painter = ui.painter().with_clip_rect(response.rect.shrink(2.0));
+                        if let Some(flight) = &mut self.arrival
+                            && let Some(elapsed) = &mut flight.button_elapsed
+                            && let Some((_, Ok((texture, _)))) = &self.cached
+                        {
+                            *elapsed += ui.input(|i| i.stable_dt).min(0.05);
+                            let fade = (*elapsed / 0.25).clamp(0.0, 1.0);
+                            let image_size = texture.size_vec2();
+                            let fit = (response.rect.width() / image_size.x)
+                                .min(response.rect.height() / image_size.y);
+                            let preview_rect = Rect::from_center_size(response.rect.center(), image_size * fit);
+                            painter.image(texture.id(), preview_rect,
+                                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                                Color32::WHITE.gamma_multiply(fade));
+                            flight.origin.rect = response.rect;
+                            if *elapsed >= 0.45 {
+                                flight.button_elapsed = None;
+                                depart = true;
+                            }
+                        } else {
+                            let spinner_rect = Rect::from_center_size(response.rect.center(), Vec2::splat(22.0));
+                            ui.put(spinner_rect, egui::Spinner::new());
+                        }
+                        if let Some((_, _, origin)) = &mut self.download {
+                            origin.rect = response.rect;
+                        }
+                        ui.ctx().request_repaint();
+                    }
                 });
             });
         if confirm {
@@ -540,13 +811,101 @@ impl State {
                     library.images.clear();
                     library.selected = 0;
                 }
+                Confirmation::SaveDropped { file, name } => {
+                    match crate::image_drop::Job::start(vec![file.clone()], None, ctx.clone()) {
+                        Ok(job) => {
+                            self.confirmation = Some(Confirmation::SaveDropped {
+                                file: file.clone(),
+                                name: name.clone(),
+                            });
+                            self.download = Some((
+                                job,
+                                name,
+                                DownloadOrigin {
+                                    rect: button_rect,
+                                    viewport: ctx.viewport_id(),
+                                },
+                            ));
+                            self.notice = "Downloading reference image…".into();
+                        }
+                        Err(error) => self.notice = error,
+                    }
+                }
             }
             true
         } else {
-            if !cancel && !modal.should_close() {
+            if cancel || (!busy && modal.should_close()) {
+                if matches!(&action, Confirmation::SaveDropped { .. }) {
+                    self.notice.clear();
+                    self.download = None;
+                }
+            }
+            if !cancel && !depart && (busy || !modal.should_close()) {
                 self.confirmation = Some(action);
             }
             false
+        }
+    }
+    fn poll_download(&mut self, ctx: &egui::Context, library: &mut Library) -> bool {
+        let result = self.download.as_mut().and_then(|(job, _, _)| job.poll());
+        let Some(result) = result else {
+            if self.download.is_some() {
+                ctx.request_repaint_after(Duration::from_millis(25));
+            }
+            return false;
+        };
+        let Some((_, name, origin)) = self.download.take() else {
+            return false;
+        };
+        match result {
+            Ok(loaded) => {
+                match save_downloaded_image(&loaded.image, &name, &reference_assets_dir()) {
+                    Ok(path) => {
+                        self.notice = format!("Saved reference: {}", path.display());
+                        let changed = library.add([path]);
+                        let path = library.images[library.selected].path.clone();
+                        let size =
+                            Vec2::new(loaded.image.size[0] as f32, loaded.image.size[1] as f32);
+                        // Reuse the downloaded pixels immediately, avoiding a second disk load
+                        // and an instant static preview underneath the flying image.
+                        let pixels = image::RgbaImage::from_raw(
+                            loaded.image.size[0] as u32,
+                            loaded.image.size[1] as u32,
+                            loaded.image.pixels,
+                        )
+                        .expect("validated downloaded image");
+                        let preview = image::DynamicImage::ImageRgba8(pixels)
+                            .thumbnail(4096, 4096)
+                            .into_rgba8();
+                        let texture = ctx.load_texture(
+                            "reference_preview",
+                            egui::ColorImage::from_rgba_unmultiplied(
+                                [preview.width() as usize, preview.height() as usize],
+                                preview.as_raw(),
+                            ),
+                            egui::TextureOptions::LINEAR,
+                        );
+                        self.job = None;
+                        self.cached = Some((path.clone(), Ok((texture, size))));
+                        self.arrival = Some(Arrival {
+                            origin,
+                            path,
+                            elapsed: 0.0,
+                            button_elapsed: Some(0.0),
+                        });
+                        ctx.request_repaint();
+                        changed
+                    }
+                    Err(error) => {
+                        self.notice = error;
+                        false
+                    }
+                }
+            }
+            Err(error) => {
+                self.notice = error;
+                false
+            }
         }
     }
 }
@@ -619,6 +978,45 @@ mod tests {
         let mut library = Library::default();
         library.add([path]);
         assert!(library.valid()); // Missing originals remain relinkable.
+    }
+    #[test]
+    fn downloaded_reference_is_saved_as_a_unique_png_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = crate::clipboard::Image {
+            size: [2, 1],
+            pixels: vec![255, 20, 30, 255, 10, 40, 250, 128],
+        };
+        let first = save_downloaded_image(&image, "My reference.jpg", dir.path()).unwrap();
+        let second = save_downloaded_image(&image, "My reference.jpg", dir.path()).unwrap();
+        assert_eq!(first.file_name().unwrap(), "My-reference.png");
+        assert_eq!(second.file_name().unwrap(), "My-reference-2.png");
+        let decoded = image::open(first).unwrap().into_rgba8();
+        assert_eq!(decoded.dimensions(), (2, 1));
+        assert_eq!(decoded.as_raw(), &image.pixels);
+    }
+    #[test]
+    fn browser_image_drop_waits_for_confirmation_and_does_not_touch_clipboard() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("copied.png");
+        image::RgbaImage::from_pixel(1, 1, image::Rgba([1, 2, 3, 255]))
+            .save(&file_path)
+            .unwrap();
+        let bytes: std::sync::Arc<[u8]> = std::fs::read(file_path).unwrap().into();
+        let dropped = egui::DroppedFile {
+            name: "copied.png".into(),
+            mime: "image/png".into(),
+            bytes: Some(bytes),
+            ..Default::default()
+        };
+        let mut state = State::default();
+        let mut library = Library::default();
+        assert!(!state.handle_files(vec![dropped], &mut library));
+        assert!(library.images.is_empty());
+        assert!(matches!(
+            state.confirmation,
+            Some(Confirmation::SaveDropped { .. })
+        ));
+        assert!(state.download.is_none());
     }
     #[test]
     fn pointer_anchored_zoom_and_async_switch_do_not_keep_stale_images() {

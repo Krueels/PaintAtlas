@@ -7,6 +7,8 @@ mod canvas_backdrop;
 mod clipboard_motion;
 #[path = "clipboard_ui.rs"]
 mod clipboard_ui;
+#[path = "close_motion.rs"]
+mod close_motion;
 #[path = "documents_ui.rs"]
 mod documents_ui;
 #[path = "export_ui.rs"]
@@ -120,6 +122,7 @@ struct Gesture {
 struct LayerDrag(usize);
 
 pub struct PaintAtlas {
+    close_motion: close_motion::State,
     image_import: Option<crate::image_drop::Job>,
     references: crate::reference::State,
     image_editor: Option<image_menu::Editor>,
@@ -291,6 +294,7 @@ impl PaintAtlas {
             });
         let canvas = settings.new_canvas.clone();
         let mut app = Self {
+            close_motion: Default::default(),
             image_import: None,
             references: Default::default(),
             image_editor: None,
@@ -1129,6 +1133,10 @@ impl PaintAtlas {
             }
             Action::Close | Action::CloseAll => {
                 self.close_active_document();
+                if self.close_motion.pending.is_some() {
+                    self.close_motion.followup = Some(matches!(action, Action::Close));
+                    return;
+                }
                 self.continue_closing_documents(matches!(action, Action::Close));
             }
             Action::Open => {
@@ -1325,6 +1333,7 @@ impl PaintAtlas {
                     self.apply_layer_action(self.doc.active, layer_menu::LayerAction::MergeSelected)
                 }
                 Shortcut::New => self.request(Action::New),
+                Shortcut::Open if self.startup_canvas_required => self.open_startup_file(ctx),
                 Shortcut::Open => self.request(Action::Open),
                 Shortcut::Save => {
                     self.save(false);
@@ -1391,7 +1400,7 @@ impl PaintAtlas {
         egui::TopBottomPanel::top("header")
             .frame(egui::Frame::side_top_panel(&ctx.style()).corner_radius(8))
             .show(ctx, |ui| {
-                if self.image_editor.is_some() {
+                if self.image_editor.is_some() || self.close_motion.active() {
                     ui.visuals_mut().disabled_alpha = 1.0;
                 }
                 if self.gesture.is_some() || self.ruler_ui.editing() || self.quick_shape.as_ref().is_some_and(|e| e.editing)
@@ -1399,6 +1408,7 @@ impl PaintAtlas {
                     || self.pending.is_some()
                     || self.new_dialog
                     || self.image_editor.is_some()
+                    || self.close_motion.active()
                 {
                     ui.disable();
                 }
@@ -2180,7 +2190,7 @@ impl PaintAtlas {
             self.smooth_fit = false;
             self.fit = false;
         }
-        if self.startup_transition.is_some() {
+        if self.startup_transition.is_some() || self.close_motion.active() {
             // Layout the destination, but accept no drawing/navigation during the handoff.
             self.last_canvas_bounds = Some(bounds);
             return;
@@ -3876,7 +3886,7 @@ impl PaintAtlas {
         self.apply_workspace_actions(ctx);
     }
     fn panel_ui(&mut self, ui: &mut egui::Ui, panel: crate::workspace::Panel) {
-        if self.startup_transition.is_some() {
+        if self.startup_transition.is_some() || self.close_motion.active() {
             ui.visuals_mut().disabled_alpha = 1.0;
             ui.disable();
         }
@@ -4250,7 +4260,7 @@ impl PaintAtlas {
                     ))
                     .clicked()
                 {
-                    self.perform(Action::Open);
+                    self.open_startup_file(ctx);
                 }
                 if crate::theme::button(ui, "Paste image")
                     .on_hover_text(crate::i18n::ui(
@@ -4505,6 +4515,7 @@ impl eframe::App for PaintAtlas {
         }
     }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.close_motion.ctx = Some(ctx.clone());
         crate::i18n::set_language(ctx, self.settings.language);
         crate::theme::apply(ctx, &self.settings.appearance);
         if std::mem::take(&mut self.maximize_on_start) {
@@ -4551,10 +4562,10 @@ impl eframe::App for PaintAtlas {
             self.settings_pending = true;
             self.settings_edited = std::time::Instant::now();
         }
-        if self.startup_transition.is_none() {
+        if self.startup_transition.is_none() && !self.close_motion.active() {
             self.handle_image_drops(ctx);
         }
-        if self.startup_canvas_required {
+        if self.startup_canvas_required && !self.close_motion.active() {
             self.clipboard_shortcuts(ctx);
         }
         self.prepare_canvas_backdrop(ctx);
@@ -4563,7 +4574,7 @@ impl eframe::App for PaintAtlas {
             self.new_dialog = true;
             self.startup_splash(ctx);
         } else {
-            if self.startup_transition.is_none() {
+            if self.startup_transition.is_none() && !self.close_motion.active() {
                 self.shortcuts(ctx);
             }
             self.top(ctx);
@@ -4578,6 +4589,9 @@ impl eframe::App for PaintAtlas {
         self.first_run_settings_ui(ctx);
         crate::theme::finish_glass(ctx);
         self.startup_transition_ui(ctx);
+        self.close_motion_ui(ctx);
+        self.finish_close_frame(ctx);
+        self.close_motion.ctx = None;
         self.ruler_ui.finish_pointer_edit(ctx);
         if self.gesture.is_none()
             && !self.opacity_edit

@@ -6,6 +6,7 @@ const DURATION: f32 = 0.62;
 enum Direction {
     Copy,
     Paste,
+    Drop,
 }
 struct Flight {
     texture: egui::TextureHandle,
@@ -64,6 +65,14 @@ fn fit(rect: egui::Rect, size: Vec2) -> egui::Rect {
     egui::Rect::from_center_size(rect.center(), size * factor)
 }
 fn trajectory(source: [Pos2; 4], target: [Pos2; 4], progress: f32) -> [Pos2; 4] {
+    trajectory_eased(source, target, progress, false)
+}
+fn trajectory_eased(
+    source: [Pos2; 4],
+    target: [Pos2; 4],
+    progress: f32,
+    ease_out: bool,
+) -> [Pos2; 4] {
     let t = progress.clamp(0.0, 1.0);
     if t == 0.0 {
         return source;
@@ -71,7 +80,11 @@ fn trajectory(source: [Pos2; 4], target: [Pos2; 4], progress: f32) -> [Pos2; 4] 
     if t == 1.0 {
         return target;
     }
-    let t = t * t * (3.0 - 2.0 * t);
+    let t = if ease_out {
+        1.0 - (1.0 - t).powi(3)
+    } else {
+        t * t * (3.0 - 2.0 * t)
+    };
     let a = center(source);
     let b = center(target);
     let arc = Vec2::new(
@@ -88,7 +101,7 @@ impl State {
     pub fn hides_paste(&self) -> bool {
         self.flight
             .as_ref()
-            .is_some_and(|f| f.direction == Direction::Paste)
+            .is_some_and(|f| matches!(f.direction, Direction::Paste | Direction::Drop))
     }
     pub fn cancel_flight(&mut self) {
         self.flight = None;
@@ -160,6 +173,29 @@ impl State {
             }
         }
         ctx.request_repaint();
+    }
+    pub fn dropped(
+        &mut self,
+        ctx: &egui::Context,
+        texture: egui::TextureHandle,
+        origin: Pos2,
+        target: Option<[Pos2; 4]>,
+    ) {
+        self.flight = None;
+        if !crate::theme::reduced_motion(ctx)
+            && let Some(target) = target
+        {
+            let size = texture.size_vec2();
+            let source = egui::Rect::from_center_size(origin, size * (80.0 / size.max_elem()));
+            self.flight = Some(Flight {
+                texture,
+                source: quad(source),
+                target,
+                direction: Direction::Drop,
+                elapsed: 0.0,
+            });
+            ctx.request_repaint();
+        }
     }
     pub fn badge_ui(&mut self, ui: &mut egui::Ui) -> bool {
         let Some(texture) = &self.thumbnail else {
@@ -233,14 +269,23 @@ impl State {
         let progress = if reduced {
             1.0
         } else {
-            (flight.elapsed / DURATION).min(1.0)
+            let duration = if flight.direction == Direction::Drop {
+                0.50
+            } else {
+                DURATION
+            };
+            (flight.elapsed / duration).min(1.0)
         };
         if flight.direction == Direction::Copy {
             flight.target = icon;
         } else if let Some(target) = paste_target {
             flight.target = target;
         }
-        let points = trajectory(flight.source, flight.target, progress);
+        let points = if flight.direction == Direction::Drop {
+            trajectory_eased(flight.source, flight.target, progress, true)
+        } else {
+            trajectory(flight.source, flight.target, progress)
+        };
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Tooltip,
             egui::Id::new("clipboard-flight"),
@@ -248,6 +293,8 @@ impl State {
         let mut mesh = egui::Mesh::with_texture(flight.texture.id());
         let opacity = if flight.direction == Direction::Copy {
             1.0 - 0.15 * progress
+        } else if flight.direction == Direction::Drop {
+            (progress / 0.18).min(1.0)
         } else {
             1.0
         };

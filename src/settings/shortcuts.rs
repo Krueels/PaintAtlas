@@ -203,6 +203,7 @@ actions! {
     SelectionAdd, "Selection", "Add to selection while held", 4, true, ["Shift"];
     SelectionSubtract, "Selection", "Subtract from selection while held", 4, true, ["Alt"];
     Proportion, "Transform", "Toggle aspect ratio while held", 8, true, ["Shift"];
+    ScaleFromCenter, "Transform", "Scale from center while held", 8, true, ["Alt"];
     ConstrainMove, "Transform", "Constrain movement to 45° while held", 8, true, ["Shift"];
     RotationSnap, "Transform", "Snap rotation to 15° while held", 8, true, ["Shift"];
 }
@@ -410,6 +411,9 @@ impl Shortcuts {
             // These modifiers share Shift in mutually exclusive move/resize/rotate drags.
             && !(matches!(action, Action::Proportion | Action::RotationSnap | Action::ConstrainMove)
                 && matches!(other, Action::Proportion | Action::RotationSnap | Action::ConstrainMove))
+            && !matches!((action, *other),
+                (Action::ScaleFromCenter, Action::ConstrainMove | Action::RotationSnap)
+                | (Action::ConstrainMove | Action::RotationSnap, Action::ScaleFromCenter))
             && self.bindings(*other).contains(binding)).collect()
     }
     pub fn assign(&mut self, action: Action, slot: usize, binding: Binding, replace: bool) -> bool {

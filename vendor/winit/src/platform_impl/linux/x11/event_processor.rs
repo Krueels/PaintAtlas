@@ -481,14 +481,22 @@ impl EventProcessor {
 
             let source_window = xev.data.get_long(0) as xproto::Window;
 
-            // Equivalent to `(x << shift) | y`
-            // where `shift = mem::size_of::<c_short>() * 8`
-            // Note that coordinates are in "desktop space", not "window space"
-            // (in X11 parlance, they're root window coordinates)
-            // let packed_coordinates = xev.data.get_long(2);
-            // let shift = mem::size_of::<libc::c_short>() * 8;
-            // let x = packed_coordinates >> shift;
-            // let y = packed_coordinates & !(x << shift);
+            // Pointer motion is normally grabbed by the browser during XDND.
+            // Forward its root coordinates so drop routing and arrival animations
+            // use the release point rather than the last pre-drag pointer event.
+            let packed = xev.data.get_long(2) as u32;
+            if let Some(position) = wt.xconn.xcb_connection()
+                .translate_coordinates(wt.root, window, (packed >> 16) as i16, packed as i16)
+                .ok().and_then(|cookie| cookie.reply().ok())
+            {
+                callback(&self.target, Event::WindowEvent {
+                    window_id,
+                    event: WindowEvent::CursorMoved {
+                        device_id: crate::event::DeviceId::dummy(),
+                        position: PhysicalPosition::new(position.dst_x as f64, position.dst_y as f64),
+                    },
+                });
+            }
 
             // By our own state flow, `version` should never be `None` at this point.
             let version = self.dnd.version.unwrap_or(5);
@@ -496,13 +504,25 @@ impl EventProcessor {
             // Action is specified in versions 2 and up, though we don't need it anyway.
             // let action = xev.data.get_long(4);
 
-            let accepted = if let Some(ref type_list) = self.dnd.type_list {
-                type_list.contains(&atoms[TextUriList])
-            } else {
-                false
-            };
+            // Prefer a URI so browser image drags can be downloaded on demand.
+            // Brave/Chromium may offer only the encoded image MIME type instead.
+            let selected_type = self.dnd.type_list.as_ref().and_then(|type_list| {
+                [
+                    atoms[TextUriList],
+                    atoms[ImagePng],
+                    atoms[ImageJpeg],
+                    atoms[ImageWebp],
+                    atoms[ImageGif],
+                    atoms[ImageBmp],
+                    atoms[TextPlainUtf8],
+                    atoms[TextPlain],
+                    atoms[UTF8_STRING],
+                ]
+                .into_iter()
+                .find(|target| type_list.contains(target))
+            });
 
-            if !accepted {
+            let Some(selected_type) = selected_type else {
                 unsafe {
                     self.dnd
                         .send_status(window, source_window, DndState::Rejected)
@@ -510,8 +530,9 @@ impl EventProcessor {
                 }
                 self.dnd.reset();
                 return;
-            }
+            };
 
+            self.dnd.selected_type = Some(selected_type);
             self.dnd.source_window = Some(source_window);
             if self.dnd.result.is_none() {
                 let time = if version >= 1 {
@@ -526,7 +547,7 @@ impl EventProcessor {
 
                 // This results in the `SelectionNotify` event below
                 unsafe {
-                    self.dnd.convert_selection(window, time);
+                    self.dnd.convert_selection(window, time, selected_type);
                 }
             }
 
@@ -593,18 +614,20 @@ impl EventProcessor {
 
         // This is where we receive data from drag and drop
         self.dnd.result = None;
-        if let Ok(mut data) = unsafe { self.dnd.read_data(window) } {
-            let parse_result = self.dnd.parse_data(&mut data);
-            if let Ok(ref path_list) = parse_result {
-                for path in path_list {
-                    let event = Event::WindowEvent {
-                        window_id,
-                        event: WindowEvent::HoveredFile(path.clone()),
-                    };
-                    callback(&self.target, event);
+        if let Some(target) = self.dnd.selected_type {
+            if let Ok(data) = unsafe { self.dnd.read_data(window, target) } {
+                let parse_result = self.dnd.parse_data(&data, target);
+                if let Ok(ref path_list) = parse_result {
+                    for path in path_list {
+                        let event = Event::WindowEvent {
+                            window_id,
+                            event: WindowEvent::HoveredFile(path.clone()),
+                        };
+                        callback(&self.target, event);
+                    }
                 }
+                self.dnd.result = Some(parse_result);
             }
-            self.dnd.result = Some(parse_result);
         }
     }
 

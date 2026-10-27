@@ -15,13 +15,14 @@ pub enum DndState {
 }
 
 pub use super::paintatlas_drop::DndDataParseError;
-use super::paintatlas_drop::parse_uri_data;
 
 pub struct Dnd {
     xconn: Arc<XConnection>,
     // Populated by XdndEnter event handler
     pub version: Option<c_long>,
     pub type_list: Option<Vec<xproto::Atom>>,
+    /// Target MIME offered by the source and selected for the current transfer.
+    pub selected_type: Option<xproto::Atom>,
     // Populated by XdndPosition event handler
     pub source_window: Option<xproto::Window>,
     // Populated by SelectionNotify event handler (triggered by XdndPosition event handler)
@@ -30,12 +31,20 @@ pub struct Dnd {
 
 impl Dnd {
     pub fn new(xconn: Arc<XConnection>) -> Result<Self, X11Error> {
-        Ok(Dnd { xconn, version: None, type_list: None, source_window: None, result: None })
+        Ok(Dnd {
+            xconn,
+            version: None,
+            type_list: None,
+            selected_type: None,
+            source_window: None,
+            result: None,
+        })
     }
 
     pub fn reset(&mut self) {
         self.version = None;
         self.type_list = None;
+        self.selected_type = None;
         self.source_window = None;
         self.result = None;
     }
@@ -100,14 +109,19 @@ impl Dnd {
         )
     }
 
-    pub unsafe fn convert_selection(&self, window: xproto::Window, time: xproto::Timestamp) {
+    pub unsafe fn convert_selection(
+        &self,
+        window: xproto::Window,
+        time: xproto::Timestamp,
+        target: xproto::Atom,
+    ) {
         let atoms = self.xconn.atoms();
         self.xconn
             .xcb_connection()
             .convert_selection(
                 window,
                 atoms[XdndSelection],
-                atoms[TextUriList],
+                target,
                 atoms[XdndSelection],
                 time,
             )
@@ -117,13 +131,33 @@ impl Dnd {
     pub unsafe fn read_data(
         &self,
         window: xproto::Window,
+        target: xproto::Atom,
     ) -> Result<Vec<c_uchar>, util::GetPropertyError> {
         let atoms = self.xconn.atoms();
-        self.xconn.get_property(window, atoms[XdndSelection], atoms[TextUriList])
+        self.xconn.get_property(window, atoms[XdndSelection], target)
     }
 
-    pub fn parse_data(&self, data: &mut [c_uchar]) -> Result<Vec<PathBuf>, DndDataParseError> {
-        parse_uri_data(data)
+    pub fn parse_data(
+        &self,
+        data: &[c_uchar],
+        target: xproto::Atom,
+    ) -> Result<Vec<PathBuf>, DndDataParseError> {
+        let atoms = self.xconn.atoms();
+        let mime = [
+            (atoms[TextUriList], "text/uri-list"),
+            (atoms[TextPlain], "text/plain"),
+            (atoms[TextPlainUtf8], "text/plain;charset=utf-8"),
+            (atoms[UTF8_STRING], "UTF8_STRING"),
+            (atoms[ImagePng], "image/png"),
+            (atoms[ImageJpeg], "image/jpeg"),
+            (atoms[ImageWebp], "image/webp"),
+            (atoms[ImageGif], "image/gif"),
+            (atoms[ImageBmp], "image/bmp"),
+        ]
+        .into_iter()
+        .find_map(|(atom, name)| (atom == target).then_some(name))
+        .ok_or(DndDataParseError::UnsupportedMime)?;
+        super::paintatlas_drop::parse_target_data(data, mime)
     }
 }
 

@@ -129,6 +129,15 @@ fn resized(initial: egui::Rect, handle: usize, delta: Vec2, keep_ratio: bool) ->
     }
     egui::Rect::from_min_max(min, max)
 }
+fn resized_from_center(
+    initial: egui::Rect,
+    handle: usize,
+    delta: Vec2,
+    keep_ratio: bool,
+) -> egui::Rect {
+    let resized = resized(initial, handle, delta * 2.0, keep_ratio);
+    egui::Rect::from_center_size(initial.center(), resized.size())
+}
 fn clipped(a: Pos2, b: Pos2, clip: egui::Rect) -> Option<(Pos2, Pos2)> {
     let delta = b - a;
     let mut lo = 0.0_f32;
@@ -531,20 +540,31 @@ impl PaintAtlas {
         if self.preferences.capturing_shortcut() {
             return true;
         }
-        let (pointer, pressed, down, released, proportion, snap, constrain_move, add, subtract) =
-            ctx.input(|i| {
-                (
-                    i.pointer.interact_pos(),
-                    i.pointer.primary_pressed(),
-                    i.pointer.primary_down(),
-                    i.pointer.primary_released(),
-                    self.settings.shortcuts.held(i, Shortcut::Proportion),
-                    self.settings.shortcuts.held(i, Shortcut::RotationSnap),
-                    self.settings.shortcuts.held(i, Shortcut::ConstrainMove),
-                    self.settings.shortcuts.held(i, Shortcut::SelectionAdd),
-                    self.settings.shortcuts.held(i, Shortcut::SelectionSubtract),
-                )
-            });
+        let (
+            pointer,
+            pressed,
+            down,
+            released,
+            proportion,
+            from_center,
+            snap,
+            constrain_move,
+            add,
+            subtract,
+        ) = ctx.input(|i| {
+            (
+                i.pointer.interact_pos(),
+                i.pointer.primary_pressed(),
+                i.pointer.primary_down(),
+                i.pointer.primary_released(),
+                self.settings.shortcuts.held(i, Shortcut::Proportion),
+                self.settings.shortcuts.held(i, Shortcut::ScaleFromCenter),
+                self.settings.shortcuts.held(i, Shortcut::RotationSnap),
+                self.settings.shortcuts.held(i, Shortcut::ConstrainMove),
+                self.settings.shortcuts.held(i, Shortcut::SelectionAdd),
+                self.settings.shortcuts.held(i, Shortcut::SelectionSubtract),
+            )
+        });
         let in_toolbar =
             pointer.is_some_and(|p| self.selection.toolbar.is_some_and(|r| r.contains(p)));
         if let Some(f) = &mut self.selection.floating {
@@ -585,7 +605,12 @@ impl PaintAtlas {
                         };
                         drag.bounds
                     } else if let Some(handle) = drag.handle {
-                        let local = resized(
+                        let resize = if from_center {
+                            resized_from_center
+                        } else {
+                            resized
+                        };
+                        let local = resize(
                             drag.bounds,
                             handle,
                             rotation.inverse() * delta,
@@ -795,6 +820,16 @@ impl PaintAtlas {
         ui.checkbox(
             &mut self.selection.keep_ratio,
             crate::i18n::ui(ui.ctx(), "Constrain proportions at corners"),
+        );
+        crate::theme::caption(
+            ui,
+            crate::i18n::ui(
+                ui.ctx(),
+                format!(
+                    "{}: scale from center",
+                    self.settings.shortcuts.label(Shortcut::ScaleFromCenter),
+                ),
+            ),
         );
         crate::theme::caption(
             ui,
@@ -1187,5 +1222,29 @@ mod tests {
         }
         let out = resized(r, 3, Vec2::new(25.0, 14.0), true);
         assert_eq!(out.size(), Vec2::new(105.0, 40.0));
+    }
+    #[test]
+    fn centered_scaling_keeps_pivot_and_moves_both_sides_for_every_handle() {
+        let initial = egui::Rect::from_min_size(Pos2::new(20.0, 30.0), Vec2::new(80.0, 40.0));
+        for (handle, point) in handles(initial).into_iter().enumerate() {
+            let delta = (point - initial.center()).normalized() * 10.0;
+            for keep_ratio in [false, true] {
+                let out = resized_from_center(initial, handle, delta, keep_ratio);
+                assert!(out.center().distance(initial.center()) < 0.001);
+                assert!(handles(out)[handle].distance(point + delta) < 0.001);
+                if keep_ratio && handle.is_multiple_of(2) {
+                    assert!((out.aspect_ratio() - initial.aspect_ratio()).abs() < 0.001);
+                }
+                // The UI rotates the local center displacement into document space.
+                for angle in [0.0, 0.7, -1.3] {
+                    let world_center = initial.center()
+                        + egui::emath::Rot2::from_angle(angle) * (out.center() - initial.center());
+                    assert!(world_center.distance(initial.center()) < 0.001);
+                }
+                let tiny = resized_from_center(initial, handle, -delta * 100.0, keep_ratio);
+                assert!(tiny.width() >= 1.0 && tiny.height() >= 1.0);
+                assert!(tiny.center().distance(initial.center()) < 0.001);
+            }
+        }
     }
 }

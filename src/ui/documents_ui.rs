@@ -72,6 +72,9 @@ impl PaintAtlas {
         format!("{name}{}", if dirty { " •" } else { "" })
     }
     pub(super) fn document_change_allowed(&mut self) -> bool {
+        if self.close_motion.active() {
+            return false;
+        }
         if self.quick_shape.as_ref().is_some_and(|e| e.editing) {
             self.status =
                 "Apply QuickShape or restore the original stroke before switching canvases.".into();
@@ -213,6 +216,9 @@ impl PaintAtlas {
         if self.documents.is_empty() {
             return;
         }
+        if self.close_motion.defer(self.dirty) {
+            return;
+        }
         self.documents.remove(self.active_document);
         // Drop active pixels, masks and history before restoring a neighbour.
         self.reset(Document::new(16, 16, false), None, false);
@@ -236,6 +242,10 @@ impl PaintAtlas {
                 return;
             }
             self.close_active_document();
+            if self.close_motion.pending.is_some() {
+                self.close_motion.followup = Some(exit);
+                return;
+            }
         }
         if exit {
             self.allow_close = true;
@@ -245,6 +255,7 @@ impl PaintAtlas {
         let enabled = self.gesture.is_none()
             && self.selection.floating.is_none()
             && self.pending.is_none()
+            && !self.close_motion.active()
             && !self.new_dialog;
         let mut switch = None;
         let mut close = None;
