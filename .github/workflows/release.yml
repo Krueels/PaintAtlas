@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            executable: paintatlas
+            archive: PaintAtlas-linux-x86_64.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            executable: paintatlas.exe
+            archive: PaintAtlas-windows-x86_64.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux graphics and window-system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libegl1-mesa-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev
+      - name: Build release
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package Linux release
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p dist/PaintAtlas
+          cp target/${{ matrix.target }}/release/${{ matrix.executable }} dist/PaintAtlas/
+          mkdir -p dist/PaintAtlas/assets
+          cp -r assets/default_brushes dist/PaintAtlas/assets/
+          tar -czf dist/${{ matrix.archive }} -C dist PaintAtlas
+      - name: Package Windows release
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/PaintAtlas | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/${{ matrix.executable }} dist/PaintAtlas/
+          New-Item -ItemType Directory -Force dist/PaintAtlas/assets | Out-Null
+          Copy-Item assets/default_brushes dist/PaintAtlas/assets/ -Recurse
+          Compress-Archive -Path dist/PaintAtlas -DestinationPath dist/${{ matrix.archive }}
+          python -m pip install Pillow
+          python -c "from PIL import Image; Image.open('assets/PaintAtlas.png').convert('RGBA').save('assets/PaintAtlas.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+          choco install innosetup --no-progress -y
+          $version = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"').Matches.Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" packaging/windows/PaintAtlas.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: dist/${{ matrix.archive }}
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: PaintAtlas-Setup-windows-x86_64.exe
+          path: dist/PaintAtlas-Setup-windows-x86_64.exe
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          files: dist/*
