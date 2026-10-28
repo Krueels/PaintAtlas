@@ -7,7 +7,7 @@ impl PaintAtlas {
                 self.status =
                     "An import is in progress. Finish or cancel it before dropping more images."
                         .into();
-            } else if self.gesture.is_some()
+            } else if (self.gesture.is_some() || self.retouch.busy())
                 || self.selection.floating.is_some()
                 || self.creating_selection()
                 || self.pending.is_some()
@@ -45,7 +45,7 @@ impl PaintAtlas {
                 return;
             }
         }
-        if self.gesture.is_some()
+        if (self.gesture.is_some() || self.retouch.busy())
             || self.selection.floating.is_some()
             || self.creating_selection()
             || self.pending.is_some()

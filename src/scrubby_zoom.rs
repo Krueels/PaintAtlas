@@ -54,6 +54,7 @@ impl PaintAtlas {
             && !self.new_dialog
             && self.image_editor.is_none()
             && self.gesture.is_none()
+            && !self.retouch.busy()
             && !middle
             && focused;
         let pan_held = ctx.input(|i| self.settings.shortcuts.held(i, Shortcut::Pan));

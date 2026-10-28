@@ -94,7 +94,7 @@ impl PaintAtlas {
             && !self.documents.is_empty()
             && self.image_editor.is_none()
             && self.selection.floating.is_none()
-            && self.gesture.is_none()
+            && (self.gesture.is_none() && !self.retouch.busy())
             && !self.creating_selection()
             && self.pending.is_none()
             && !self.new_dialog

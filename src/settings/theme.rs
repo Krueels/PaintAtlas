@@ -560,6 +560,24 @@ fn icon(p: &egui::Painter, center: Pos2, tool: crate::document::Tool, color: Col
                 line(a, b);
             }
         }
+        Tool::Liquify => {
+            path(
+                (0..=32)
+                    .map(|i| {
+                        let t = i as f32 / 32.0 * std::f32::consts::TAU * 1.6;
+                        let r = 6.0 * (1.0 - i as f32 / 40.0);
+                        center + Vec2::new(t.cos(), t.sin()) * r
+                    })
+                    .collect(),
+            );
+        }
+        Tool::Clone => {
+            p.circle_stroke(at(7.0, 4.0), 3.0, stroke);
+            line(at(5.0, 7.0), at(4.0, 10.0));
+            line(at(9.0, 7.0), at(10.0, 10.0));
+            line(at(2.0, 11.0), at(12.0, 11.0));
+            line(at(2.0, 13.0), at(12.0, 13.0));
+        }
         Tool::Lasso => {
             let points = (0..=24)
                 .map(|i| {

@@ -78,7 +78,7 @@ impl PaintAtlas {
             self.begin_startup_transition(ctx, transition);
             return Ok(());
         }
-        if self.selection.floating.is_some() || self.gesture.is_some() {
+        if self.selection.floating.is_some() || (self.gesture.is_some() || self.retouch.busy()) {
             return Err("Apply or cancel the current transform before pasting.".into());
         }
         image.validate()?;
@@ -127,7 +127,7 @@ impl PaintAtlas {
             || ctx.wants_keyboard_input()
             || self.pending.is_some()
             || (self.new_dialog && !self.startup_canvas_required)
-            || self.gesture.is_some()
+            || (self.gesture.is_some() || self.retouch.busy())
             || self.creating_selection()
         {
             return false;

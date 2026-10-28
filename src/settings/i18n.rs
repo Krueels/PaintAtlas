@@ -29,6 +29,10 @@ impl Language {
 /// Missing translations deliberately fall back to English.
 pub fn text(language: Language, key: &'static str) -> &'static str {
     match (language, key) {
+        (Language::PortugueseBrazil, "tool.liquify") => "Dissolver",
+        (Language::PortugueseBrazil, "tool.clone") => "Clonar",
+        (_, "tool.liquify") => "Liquify",
+        (_, "tool.clone") => "Clone",
         (Language::PortugueseBrazil, "tool.ruler") => "Régua",
         (Language::PortugueseBrazil, "panel.references") => "Referências",
         (Language::PortugueseBrazil, "settings.drawing") => "Desenho",

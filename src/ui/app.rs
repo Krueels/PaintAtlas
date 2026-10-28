@@ -27,6 +27,8 @@ mod layer_menu;
 mod picker_ui;
 #[path = "quickshape_ui.rs"]
 mod quickshape_ui;
+#[path = "retouch_ui.rs"]
+mod retouch_ui;
 #[path = "ruler_ui.rs"]
 mod ruler_ui;
 #[path = "../scrubby_zoom.rs"]
@@ -122,6 +124,7 @@ struct Gesture {
 struct LayerDrag(usize);
 
 pub struct PaintAtlas {
+    retouch: retouch_ui::State,
     close_motion: close_motion::State,
     image_import: Option<crate::image_drop::Job>,
     references: crate::reference::State,
@@ -294,6 +297,7 @@ impl PaintAtlas {
             });
         let canvas = settings.new_canvas.clone();
         let mut app = Self {
+            retouch: Default::default(),
             close_motion: Default::default(),
             image_import: None,
             references: Default::default(),
@@ -863,13 +867,25 @@ impl PaintAtlas {
         self.tool = if p.eraser { Tool::Eraser } else { Tool::Brush };
     }
     fn select_preset(&mut self, index: usize) {
+        if self.retouch.busy() {
+            return;
+        }
+        let cloning = self.tool == Tool::Clone;
         self.finish_quickshape(false);
         self.remember_preset();
         self.apply_preset(index);
+        if cloning {
+            self.tool = Tool::Clone;
+        } else {
+            self.retouch.clear();
+        }
         self.settings_pending = true;
         self.settings_edited = std::time::Instant::now();
     }
     fn select_tool(&mut self, tool: Tool) {
+        if self.retouch.busy() {
+            return;
+        }
         self.finish_quickshape(false);
         if self.selection.floating.is_some() {
             self.status = format!(
@@ -884,6 +900,9 @@ impl PaintAtlas {
             && let Some(index) = self.settings.last_for_tool(tool == Tool::Eraser)
         {
             self.select_preset(index);
+        }
+        if self.tool != tool {
+            self.retouch.clear();
         }
         self.tool = tool;
     }
@@ -987,6 +1006,10 @@ impl PaintAtlas {
         Ok(())
     }
     fn changed(&mut self) {
+        self.retouch.clear();
+        self.mark_document_changed();
+    }
+    fn mark_document_changed(&mut self) {
         self.fill_reveal.clear();
         match self.doc.try_rebuild_groups_after(self.doc.damage, None) {
             Ok(()) => self.groups_prepared = true,
@@ -1041,6 +1064,7 @@ impl PaintAtlas {
         }
     }
     fn checkpoint(&mut self) {
+        self.retouch.clear();
         self.finish_quickshape(false);
         self.doc.damage = None;
         self.history.push(&self.doc);
@@ -1062,6 +1086,7 @@ impl PaintAtlas {
         }
     }
     fn reset(&mut self, doc: Document, path: Option<PathBuf>, dirty: bool) {
+        self.retouch.clear();
         self.startup_transition = None;
         self.startup_preview = None;
         self.scrubby_zoom.clear();
@@ -1235,6 +1260,7 @@ impl PaintAtlas {
         }
     }
     fn undo(&mut self) {
+        self.retouch.clear();
         self.finish_quickshape(false);
         self.clipboard_motion.cancel_flight();
         self.fill_reveal.clear();
@@ -1257,6 +1283,7 @@ impl PaintAtlas {
         }
     }
     fn redo(&mut self) {
+        self.retouch.clear();
         self.finish_quickshape(false);
         self.clipboard_motion.cancel_flight();
         self.fill_reveal.clear();
@@ -1295,7 +1322,7 @@ impl PaintAtlas {
         if ctx.wants_keyboard_input()
             || self.pending.is_some()
             || self.new_dialog
-            || self.gesture.is_some()
+            || (self.gesture.is_some() || self.retouch.busy())
             || self.ruler_ui.editing()
         {
             return;
@@ -1380,6 +1407,14 @@ impl PaintAtlas {
                 }
                 Shortcut::SelectRect => self.select_tool(Tool::SelectRect),
                 Shortcut::Lasso => self.select_tool(Tool::Lasso),
+                Shortcut::LiquifyTool => self.select_tool(Tool::Liquify),
+                Shortcut::CloneTool => self.select_tool(Tool::Clone),
+                Shortcut::SmallerBrush if self.tool == Tool::Liquify => {
+                    self.retouch.size = (self.retouch.size - 2.0).max(1.0);
+                }
+                Shortcut::LargerBrush if self.tool == Tool::Liquify => {
+                    self.retouch.size = (self.retouch.size + 2.0).min(MAX_BRUSH_SIZE);
+                }
                 Shortcut::SmallerBrush => self.size = (self.size - 2.0).max(1.0),
                 Shortcut::LargerBrush => self.size = (self.size + 2.0).min(MAX_BRUSH_SIZE),
                 Shortcut::BrushSizes => self.workspace_actions.push(
@@ -1403,7 +1438,7 @@ impl PaintAtlas {
                 if self.image_editor.is_some() || self.close_motion.active() {
                     ui.visuals_mut().disabled_alpha = 1.0;
                 }
-                if self.gesture.is_some() || self.ruler_ui.editing() || self.quick_shape.as_ref().is_some_and(|e| e.editing)
+                if (self.gesture.is_some() || self.retouch.busy()) || self.ruler_ui.editing() || self.quick_shape.as_ref().is_some_and(|e| e.editing)
                     || self.selection.floating.is_some()
                     || self.pending.is_some()
                     || self.new_dialog
@@ -2195,11 +2230,14 @@ impl PaintAtlas {
             self.last_canvas_bounds = Some(bounds);
             return;
         }
-        self.pressure = self.tablet.pressure().unwrap_or(if self.gesture.is_some() {
-            self.pressure
-        } else {
-            1.0
-        });
+        self.pressure =
+            self.tablet
+                .pressure()
+                .unwrap_or(if self.gesture.is_some() || self.retouch.busy() {
+                    self.pressure
+                } else {
+                    1.0
+                });
         if ctx.input(|i| i.focused) {
             ctx.request_repaint_after(std::time::Duration::from_millis(8));
         }
@@ -2228,7 +2266,7 @@ impl PaintAtlas {
             && self.pending.is_none()
             && !self.new_dialog
             && self.image_editor.is_none()
-            && self.gesture.is_none()
+            && (self.gesture.is_none() && !self.retouch.busy())
         {
             ctx.input_mut(|i| {
                 let steps = self.settings.shortcuts.count(i, Shortcut::ZoomIn) as i32
@@ -2239,13 +2277,14 @@ impl PaintAtlas {
         } else {
             (1.0, false)
         };
-        let wheel_factor = if response.hovered() && self.gesture.is_none() {
+        let wheel_factor = if response.hovered() && (self.gesture.is_none() && !self.retouch.busy())
+        {
             (scroll * 0.002).exp()
         } else {
             1.0
         };
         let factor = keyboard_factor * wheel_factor;
-        if down || middle || self.gesture.is_some() {
+        if down || middle || (self.gesture.is_some() || self.retouch.busy()) {
             // Keep the view still once a stroke or a drag starts.
             self.zoom_animation = None;
         }
@@ -2255,7 +2294,8 @@ impl PaintAtlas {
                 .unwrap_or(bounds.center());
             self.request_zoom(factor, reset_zoom, anchor - bounds.center());
         }
-        if (down || middle) && response.hovered() || self.gesture.is_some() {
+        if (down || middle) && response.hovered() || (self.gesture.is_some() || self.retouch.busy())
+        {
             self.fit_animation = None;
             self.rotation_target = None;
         }
@@ -2272,7 +2312,7 @@ impl PaintAtlas {
         let adjusting_brush = self.brush_hud_input(ui, &response);
         let zooming = adjusting_brush || self.scrubby_zoom_input(ui, &response, bounds);
         let panning = !zooming && ((space || self.tool == Tool::Hand) && down || middle);
-        if panning && response.hovered() && self.gesture.is_none() {
+        if panning && response.hovered() && (self.gesture.is_none() && !self.retouch.busy()) {
             self.fit_animation = None;
             self.pan += delta;
             ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -2299,10 +2339,20 @@ impl PaintAtlas {
         } else {
             true
         };
+        let retouch_consumed = if (!selection_consumed || self.retouch.busy())
+            && self.pending.is_none()
+            && !self.new_dialog
+            && self.image_editor.is_none()
+        {
+            self.retouch_input(ui, &response, view, panning)
+        } else {
+            false
+        };
         if !selection_consumed
+            && !retouch_consumed
             && self.tool != Tool::Zoom
             && self.tool != Tool::Ruler
-            && (!panning || self.gesture.is_some())
+            && (!panning || (self.gesture.is_some() || self.retouch.busy()))
             && self.pending.is_none()
             && !self.new_dialog
             && self.image_editor.is_none()
@@ -2629,7 +2679,7 @@ impl PaintAtlas {
                 ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
             }
         }
-        if self.gesture.is_none() {
+        if self.gesture.is_none() && !self.retouch.busy() {
             self.doc.ruler_copies.clear();
         }
         self.paint_rulers(ui, view);
@@ -2653,6 +2703,9 @@ impl PaintAtlas {
         self.picker.paint(ctx);
         self.paint_brush_hud(ui, view);
         self.quickshape_overlay(ui, view);
+        if !panning && !zooming {
+            self.retouch_overlay(ui, &response, view);
+        }
     }
     fn paint_brush_cursor(
         &self,
@@ -2740,6 +2793,8 @@ impl PaintAtlas {
             (Tool::Ruler, Shortcut::RulerTool),
             (Tool::SelectRect, Shortcut::SelectRect),
             (Tool::Lasso, Shortcut::Lasso),
+            (Tool::Liquify, Shortcut::LiquifyTool),
+            (Tool::Clone, Shortcut::CloneTool),
         ];
         let mut targets = Vec::with_capacity(tools.len());
         for row in tools.chunks(columns) {
@@ -2789,6 +2844,10 @@ impl PaintAtlas {
             ui.ctx(),
             self.tool.localized_name(self.settings.language),
         ));
+        if matches!(self.tool, Tool::Liquify | Tool::Clone) {
+            self.retouch_properties(ui);
+            return;
+        }
         if self.tool == Tool::Ruler {
             self.ruler_properties(ui);
             return;
@@ -3499,7 +3558,7 @@ impl PaintAtlas {
                         let response = self.layer_preview_row(ui, index);
                         if response.secondary_clicked()
                             && self.selection.floating.is_none()
-                            && self.gesture.is_none()
+                            && (self.gesture.is_none() && !self.retouch.busy())
                         {
                             if !self.selected_layers.contains(&index) {
                                 self.selected_layers.clear();
@@ -3864,7 +3923,7 @@ impl PaintAtlas {
                 (surface != egui_dock::SurfaceIndex::main()).then_some(*panel)
             })
             .collect();
-        let dragging = self.gesture.is_none();
+        let dragging = self.gesture.is_none() && !self.retouch.busy();
         let mut style = egui_dock::Style::from_egui(&ctx.style());
         crate::theme::dock(&mut style, ctx);
         // Resolve drops from the pointer position: edges split the canvas itself,
@@ -3910,7 +3969,8 @@ impl PaintAtlas {
         }
         ui.push_id(("panel_contents", panel), |ui| {
             ui.add_enabled_ui(
-                self.gesture.is_none() && self.selection.floating.is_none(),
+                (self.gesture.is_none() && !self.retouch.busy())
+                    && self.selection.floating.is_none(),
                 |ui| {
                     if panel == Panel::BrushSizes {
                         self.size_palette.contents(ui, &mut self.size);
@@ -4593,7 +4653,7 @@ impl eframe::App for PaintAtlas {
         self.finish_close_frame(ctx);
         self.close_motion.ctx = None;
         self.ruler_ui.finish_pointer_edit(ctx);
-        if self.gesture.is_none()
+        if (self.gesture.is_none() && !self.retouch.busy())
             && !self.opacity_edit
             && !self.ruler_ui.editing()
             && self.quick_shape.is_none()
@@ -5034,7 +5094,7 @@ mod tests {
                     }
                 })
                 .collect();
-            assert_eq!(buttons.len(), 12, "width {width}");
+            assert_eq!(buttons.len(), 14, "width {width}");
             for rect in buttons {
                 assert!(
                     rect.left() >= 0.0 && rect.right() <= width + 0.01,

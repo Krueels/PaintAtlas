@@ -42,6 +42,8 @@ mod presets;
 mod quickshape;
 #[path = "ui/reference.rs"]
 mod reference;
+#[path = "brush/retouch.rs"]
+mod retouch;
 #[path = "document/rulers.rs"]
 mod rulers;
 #[path = "document/selection.rs"]

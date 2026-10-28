@@ -65,7 +65,7 @@ These are deliberately absent from the app menu, rather than nonfunctional place
 | Texture | Craquelure; imported Texturizer surfaces | Crack networks and custom texture mapping |
 | Video | NTSC Colors | A defined broadcast color-space pipeline; PaintAtlas currently edits RGB pixels |
 | Other | HSB/HSL channel encoding; larger Custom kernels | Explicit channel-encoding controls and a larger matrix editor |
-| Specialized workspaces | Adaptive Wide Angle, Camera Raw Filter, Lens Correction, Liquify, Vanishing Point | Camera/lens profiles, mesh brushes, perspective planes, and separate editors |
+| Specialized workspaces | Adaptive Wide Angle, Camera Raw Filter, Lens Correction, Vanishing Point | Camera/lens profiles, mesh brushes, perspective planes, and separate editors |
 | Smart Filters | Convert for Smart Filters, editable filter stacks | Smart Objects or equivalent persistent effect nodes, masks, and serialization |
 | Neural Filters | Skin Smoothing, Smart Portrait, Makeup Transfer, Landscape Mixer, Style Transfer, Harmonization, Color Transfer, Colorize, Super Zoom, Depth Blur, JPEG Artifacts Removal, Photo Restoration | Independently licensed models, inference runtime, downloads, and document integration; Adobe model/cloud services are not available to this app |
 | Plug-ins | External filter plug-ins | A documented plug-in ABI and sandbox/lifecycle design; Photoshop binaries are not supported |
@@ -75,3 +75,7 @@ These are deliberately absent from the app menu, rather than nonfunctional place
 Filtering currently targets 8-bit RGB(A), not CMYK, HDR, RAW sensor data, or 16/32-bit editing. Results are baked into pixels on Apply; only pixels and layer properties are stored in `.patlas`. Filter settings and the last-filter command are session state. Applying another filter starts from the latest committed pixels.
 
 Large sampling filters can take time at full resolution, even though the interface stays responsive. Radius and sample controls are bounded, stale preview jobs are canceled after edits, and no worker is allowed to apply pixels after its editor has been canceled.
+
+## Interactive retouch tools
+
+Liquify and Clone are available from Tools and the Filter menu. They paint directly onto the active raster layer, support selections, alpha lock, pressure and tiled undo. Liquify includes Push, Twirl Left/Right, Pinch, Expand, Crystals, Edge, Reconstruct, Amount, Reset, distortion and momentum. Clone uses the selected brush tip and a movable/lockable source disc. These are interactive pixel tools, not filter gallery jobs or persistent group effects.

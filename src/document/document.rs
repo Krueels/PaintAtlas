@@ -70,6 +70,8 @@ pub enum Tool {
     Ruler,
     SelectRect,
     Lasso,
+    Liquify,
+    Clone,
 }
 impl Tool {
     pub fn localized_name(self, language: crate::i18n::Language) -> &'static str {
@@ -86,6 +88,8 @@ impl Tool {
             Self::Ruler => "tool.ruler",
             Self::SelectRect => "tool.selection",
             Self::Lasso => "tool.lasso",
+            Self::Liquify => "tool.liquify",
+            Self::Clone => "tool.clone",
         };
         crate::i18n::text(language, key)
     }
@@ -414,6 +418,42 @@ impl Document {
             }
         }
     }
+    /// Capture undo tiles and schedule only the edited region for GPU upload.
+    pub(crate) fn prepare_pixel_edit(&mut self, r: [usize; 4]) {
+        if self.damage.is_none() {
+            self.dirty_tiles.clear();
+        }
+        for ty in r[1] / PAINT_TILE..=(r[3] - 1) / PAINT_TILE {
+            for tx in r[0] / PAINT_TILE..=(r[2] - 1) / PAINT_TILE {
+                self.dirty_tiles.insert((ty, tx));
+                if let Some(tiles) = self.stroke_tiles.get_mut() {
+                    tiles.entry((ty, tx)).or_insert_with(|| {
+                        let x = tx * PAINT_TILE;
+                        let y = ty * PAINT_TILE;
+                        let w = PAINT_TILE.min(self.width as usize - x);
+                        let h = PAINT_TILE.min(self.height as usize - y);
+                        let mut bytes = Vec::with_capacity(w * h * 4);
+                        for row in y..y + h {
+                            let start = (row * self.width as usize + x) * 4;
+                            bytes.extend_from_slice(
+                                &self.layers[self.active].pixels[start..start + w * 4],
+                            );
+                        }
+                        bytes
+                    });
+                }
+            }
+        }
+        self.damage = Some(match self.damage {
+            Some(d) => [
+                d[0].min(r[0]),
+                d[1].min(r[1]),
+                d[2].max(r[2]),
+                d[3].max(r[3]),
+            ],
+            None => r,
+        });
+    }
     pub fn stamp(&mut self, p: [f32; 2], brush: Brush, erase: bool) {
         if self.ruler_copies.is_empty() {
             self.stamp_oriented(p, brush, erase, crate::rulers::Transform::IDENTITY);
@@ -462,39 +502,7 @@ impl Document {
         let y1 = ((p[1] + extent[1] + 1.0).ceil() as i32).min(self.height as i32);
         if x1 > x0 && y1 > y0 {
             let r = [x0 as usize, y0 as usize, x1 as usize, y1 as usize];
-            if self.damage.is_none() {
-                self.dirty_tiles.clear();
-            }
-            for ty in r[1] / PAINT_TILE..=(r[3] - 1) / PAINT_TILE {
-                for tx in r[0] / PAINT_TILE..=(r[2] - 1) / PAINT_TILE {
-                    self.dirty_tiles.insert((ty, tx));
-                    if let Some(tiles) = self.stroke_tiles.get_mut() {
-                        tiles.entry((ty, tx)).or_insert_with(|| {
-                            let x = tx * PAINT_TILE;
-                            let y = ty * PAINT_TILE;
-                            let w = PAINT_TILE.min(self.width as usize - x);
-                            let h = PAINT_TILE.min(self.height as usize - y);
-                            let mut bytes = Vec::with_capacity(w * h * 4);
-                            for row in y..y + h {
-                                let start = (row * self.width as usize + x) * 4;
-                                bytes.extend_from_slice(
-                                    &self.layers[self.active].pixels[start..start + w * 4],
-                                );
-                            }
-                            bytes
-                        });
-                    }
-                }
-            }
-            self.damage = Some(match self.damage {
-                Some(d) => [
-                    d[0].min(r[0]),
-                    d[1].min(r[1]),
-                    d[2].max(r[2]),
-                    d[3].max(r[3]),
-                ],
-                None => r,
-            });
+            self.prepare_pixel_edit(r);
         }
         let locked = self.layers[self.active].alpha_lock;
         let pixels = &mut self.layers[self.active].pixels;

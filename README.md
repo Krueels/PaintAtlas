@@ -201,7 +201,7 @@ Filters affect the active visible layer and respect selections. Spatial effects 
 
 Use **Ctrl+Alt+F** to repeat the last applied filter with its settings. Filter commands and the gallery can be remapped under **Settings → Shortcuts → Filters**. Last-filter settings persist for the current app session.
 
-See the [filter inventory and compatibility assessment](docs/reference/FILTER_CATALOG.md) for the available effects, the Adobe references used during research, algorithm differences, and deferred features such as Smart Filters, Neural Filters, Liquify, Camera Raw, and perspective tools.
+See the [filter inventory and compatibility assessment](docs/reference/FILTER_CATALOG.md) for the available effects, the Adobe references used during research, algorithm differences, and deferred features such as Smart Filters, Neural Filters, Camera Raw, and perspective tools.
 
 ### Interface and settings
 
@@ -383,3 +383,14 @@ cd PaintAtlas
 ```
 
 GitHub pushes over HTTPS require a personal access token or an authenticated credential helper; an account password cannot be used for Git authentication. An SSH remote is also supported if an SSH key is configured for your GitHub account.
+
+### Liquify and Clone
+
+Select **Liquify** or **Clone** in Tools or the Filter menu. Their controls appear in Properties. Both edit the active raster layer, respect selections and alpha lock, and support Undo/Redo per stroke.
+
+- **Liquify:** Push, Twirl Left/Right, Pinch, Expand, Crystals, Edge, and Reconstruct. Adjust size, strength, pen pressure, distortion, and momentum. Smooth deformation is optional and disabled by default; enable it in Properties for bilinear interpolation, or leave it off for crisp sampling from an immutable stroke source. A floating-point deformation field accumulates even very slow movements before pixel colors are sampled, avoiding both lost subpixel motion and repeated color blending. Amount blends the session result with its original; Reset restores it. Switching layers/tools/canvases, undoing, or applying another edit ends that reconstruction session.
+- **Clone:** drag the source disc or Alt-click to choose the source (configurable in Settings → Shortcuts). Hold the disc to lock/unlock it, or use Lock source. An unlocked source follows the stroke; a locked source repeats the same source patch. Uses the current brush tip, size, hardness and a separate strength control. Samples the active layer from a frozen copy per stroke.
+
+These are PaintAtlas implementations inspired by the [Procreate Liquify](https://help.procreate.com/procreate/handbook/5.3/adjustments/adjustments-liquify) and [Clone](https://help.procreate.com/procreate/handbook/5.4/adjustments/adjustments-clone) workflows, not identical algorithms. Liquify processes local patches and uploads damaged tiles. Its crisp mode uses direct tile indexing, row copies, reusable buffers, and parallel CPU work for large brushes. Redundant tablet packets within a frame are simplified to a path tolerance of 0.25 document pixels, preserving the final point and small movements. Very large brushes and filtered groups still cost more. Direct group deformation and symmetry replication are not supported by these tools.
+
+Clip Studio documents [optional Liquify anti-aliasing](https://help.clip-studio.com/en-us/manual_en/810_subtools/L.htm), but does not publish its internal implementation. PaintAtlas uses its own tiled displacement field for the crisp mode.

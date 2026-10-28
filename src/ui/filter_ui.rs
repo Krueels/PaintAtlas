@@ -641,6 +641,25 @@ impl PaintAtlas {
                     ui.close();
                 }
                 ui.separator();
+                for (tool, shortcut, label) in [
+                    (Tool::Liquify, Shortcut::LiquifyTool, "Liquify"),
+                    (Tool::Clone, Shortcut::CloneTool, "Clone"),
+                ] {
+                    if ui
+                        .button(crate::i18n::ui(
+                            ui.ctx(),
+                            self.settings.shortcuts.menu(shortcut, label),
+                        ))
+                        .clicked()
+                    {
+                        self.select_tool(tool);
+                        self.workspace_actions.push(crate::workspace::Action::Open(
+                            crate::workspace::Panel::Properties,
+                        ));
+                        ui.close();
+                    }
+                }
+                ui.separator();
                 for &category in filters::CATEGORIES {
                     let submenu = ui.menu_button(crate::i18n::ui(ui.ctx(), category), |ui| {
                         for &kind in Kind::ALL.iter().filter(|kind| kind.category() == category) {

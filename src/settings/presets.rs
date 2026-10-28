@@ -74,6 +74,8 @@ pub struct Settings {
     pub circle_cursor_pressure: bool,
     #[serde(default = "scrubby_enabled")]
     pub scrubby_zoom: bool,
+    #[serde(default)]
+    pub liquify_smoothing: bool,
     #[serde(default = "scrubby_enabled")]
     pub show_rulers: bool,
     #[serde(default = "scrubby_enabled")]
@@ -115,6 +117,7 @@ impl Default for Settings {
             cursor_style: Default::default(),
             circle_cursor_pressure: false,
             scrubby_zoom: true,
+            liquify_smoothing: false,
             show_rulers: true,
             snap_rulers: true,
             quickshape: Default::default(),
@@ -452,6 +455,22 @@ mod tests {
         assert_eq!(restored.render_backend, RenderBackend::OpenGl);
         assert_eq!(restored.new_canvas, NewCanvasSettings::default());
         assert!(restored.valid());
+    }
+    #[test]
+    fn liquify_smoothing_is_optional_persistent_and_legacy_safe() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut settings = Settings::default();
+        assert!(!settings.liquify_smoothing);
+        settings.liquify_smoothing = true;
+        settings.save(&path).unwrap();
+        assert!(Settings::load(&path).unwrap().liquify_smoothing);
+        let mut legacy = serde_json::to_value(&settings).unwrap();
+        legacy.as_object_mut().unwrap().remove("liquify_smoothing");
+        std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        let restored = Settings::load(&path).unwrap();
+        assert!(!restored.liquify_smoothing);
+        assert!(restored.brushes == settings.brushes);
     }
     #[test]
     fn scrubby_zoom_preference_survives_restart() {

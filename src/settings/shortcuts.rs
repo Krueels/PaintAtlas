@@ -19,13 +19,14 @@ macro_rules! actions {
             pub fn id(self) -> &'static str { match self { $(Self::$action => stringify!($action)),* } }
             pub fn label(self) -> &'static str { match self { $(Self::$action => $label),* } }
             pub fn category(self) -> &'static str { match self { $(Self::$action => $category),* } }
-            pub fn scope(self) -> u8 { match self { $(Self::$action => $scope),* } }
+            pub fn scope(self) -> u16 { match self { $(Self::$action => $scope),* } }
             pub fn is_held(self) -> bool { match self { $(Self::$action => $held),* } }
             fn make_defaults(self) -> Vec<Binding> { match self { $(Self::$action => vec![$(Binding::parse($default)),*]),* } }
         }
     }
 }
-// Contexts: normal editor=1, painting=2, creating selection=4, transform=8.
+// Contexts: normal editor=1, painting=2, selection=4, transform=8, zoom=16,
+// layers=32, rulers=64, QuickShape=128, clone source=256.
 actions! {
     New, "File", "New Canvas", 1, false, ["Ctrl+N"];
     Open, "File", "Open Project or Image", 1, false, ["Ctrl+O"];
@@ -160,6 +161,9 @@ actions! {
     Hand, "Tools", "Pan canvas", 1, false, ["H"];
     SelectRect, "Tools", "Rectangular selection", 1, false, ["S"];
     Lasso, "Tools", "Lasso", 1, false, ["A"];
+    LiquifyTool, "Tools", "Liquify", 1, false, [];
+    CloneTool, "Tools", "Clone", 1, false, [];
+    CloneSource, "Clone", "Set clone source", 256, true, ["Alt"];
     SmallerBrush, "Brush", "Decrease size", 1, false, ["OpenBracket"];
     LargerBrush, "Brush", "Increase size", 1, false, ["CloseBracket"];
     BrushSizes, "Brush", "Open brush sizes", 1, false, ["F6"];

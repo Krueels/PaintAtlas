@@ -41,6 +41,7 @@ impl PaintAtlas {
             .saturating_add(self.history.memory_bytes())
             .saturating_add(self.selection.memory_bytes())
             .saturating_add(self.picker.retained_cpu_memory_bytes())
+            .saturating_add(self.retouch.memory_bytes())
             .saturating_add(
                 self.export_dialog
                     .as_ref()
@@ -85,7 +86,10 @@ impl PaintAtlas {
             self.status = "Apply or cancel the image operation before switching canvases.".into();
             return false;
         }
-        if self.gesture.is_some() || self.ruler_ui.editing() || self.selection.floating.is_some() {
+        if (self.gesture.is_some() || self.retouch.busy())
+            || self.ruler_ui.editing()
+            || self.selection.floating.is_some()
+        {
             self.status =
                 "Finish the stroke or apply/cancel the transform before switching canvases.".into();
             false
@@ -131,6 +135,7 @@ impl PaintAtlas {
         self.invalidate_document_view();
     }
     fn invalidate_document_view(&mut self) {
+        self.retouch.clear();
         self.scrubby_zoom.clear();
         self.brush_hud.clear();
         self.quick_shape = None;
@@ -252,7 +257,7 @@ impl PaintAtlas {
         }
     }
     pub(super) fn document_canvas_ui(&mut self, ui: &mut egui::Ui) {
-        let enabled = self.gesture.is_none()
+        let enabled = (self.gesture.is_none() && !self.retouch.busy())
             && self.selection.floating.is_none()
             && self.pending.is_none()
             && !self.close_motion.active()
