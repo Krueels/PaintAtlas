@@ -5,8 +5,8 @@ edition = "2024"
 description = "Cross-platform raster drawing studio"
 
 [dependencies]
-eframe = { version = "0.33", default-features = false, features = ["default_fonts", "glow", "wgpu"] }
-egui-wgpu = { version = "0.33", default-features = true }
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wgpu"] }
+egui-wgpu = { version = "0.37", default-features = true }
 rfd = "0.17"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 resvg = { version = "0.49", default-features = false, features = ["raster-images"] }
